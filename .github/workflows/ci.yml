@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          extensions: curl, mbstring, mysqli, openssl, xml, zip
+          tools: composer:v2
+      - run: composer validate --no-check-publish
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer audit --locked
+      - run: find . -path './.git' -prune -o -path './vendor' -prune -o -path './build' -prune -o -name '*.php' -print0 | xargs -0 -n1 php -l
+      - run: composer lint
+      - run: composer test
+
+  wordpress-integration:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        wordpress: ['6.6.11', '7.1.4']
+    services:
+      mysql:
+        image: mysql:8.0.46@sha256:62fb722c78b24245ddff1796a0fcee4a49cc5b87e0aaaf20c92d1da9e0a2497b
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wordpress_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      WP_VERSION: ${{ matrix.wordpress }}
+      WP_CORE_DIR: ${{ github.workspace }}/.ci/wordpress
+      WP_TESTS_DIR: ${{ github.workspace }}/.ci/wordpress-tests-lib
+      TMPDIR: ${{ github.workspace }}/.ci/tmp
+      WP_INSTALL_TESTS_SKIP_UPDATE_CHECK: 'true'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          extensions: curl, gd, mbstring, mysqli, openssl, xml, zip
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist
+      - name: Install WordPress test suite
+        run: bash bin/install-wp-tests.sh wordpress_test root root 127.0.0.1 "$WP_VERSION" true
+      - name: Install plugin in WordPress test runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="$TMPDIR/package-stage/jocky-media-offloader"
+          plugin_root="$WP_CORE_DIR/wp-content/plugins"
+          mkdir -p "$stage" "$plugin_root"
+          cp jocky-media-offloader.php uninstall.php readme.txt composer.json composer.lock "$stage/"
+          cp -R src assets "$stage/"
+          composer install --working-dir="$stage" --no-dev --no-interaction --prefer-dist --optimize-autoloader
+          cd "$TMPDIR/package-stage"
+          zip -qr "$TMPDIR/jocky-media-offloader.zip" jocky-media-offloader
+          test "$(unzip -Z1 "$TMPDIR/jocky-media-offloader.zip" | head -n1)" = 'jocky-media-offloader/'
+          unzip -q "$TMPDIR/jocky-media-offloader.zip" -d "$plugin_root"
+          echo "JMO_PLUGIN_FILE=$plugin_root/jocky-media-offloader/jocky-media-offloader.php" >> "$GITHUB_ENV"
+      - run: composer test:integration
+
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          extensions: curl, mbstring, openssl, xml, zip
+          tools: composer:v2
+      - name: Build production ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then version="0.1.0"; fi
+          stage="$RUNNER_TEMP/jmo-stage/jocky-media-offloader"
+          mkdir -p "$stage" build
+          cp jocky-media-offloader.php uninstall.php readme.txt composer.json composer.lock "$stage/"
+          cp -R src assets "$stage/"
+          composer install --working-dir="$stage" --no-dev --no-interaction --prefer-dist --optimize-autoloader
+          cd "$RUNNER_TEMP/jmo-stage"
+          zip -qr "$GITHUB_WORKSPACE/build/jocky-media-offloader-$version.zip" jocky-media-offloader
+          test "$(unzip -Z1 "$GITHUB_WORKSPACE/build/jocky-media-offloader-$version.zip" | head -n1)" = 'jocky-media-offloader/'
+          unzip -t "$GITHUB_WORKSPACE/build/jocky-media-offloader-$version.zip"

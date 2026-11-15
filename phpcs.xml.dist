@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<ruleset name="Jocky Media Offloader">
+	<description>WordPress Coding Standards for JMO.</description>
+	<file>jocky-media-offloader.php</file>
+	<file>src</file>
+	<exclude-pattern>vendor/*</exclude-pattern>
+	<exclude-pattern>build/*</exclude-pattern>
+	<rule ref="WordPress"/>
+	<!-- PSR-4 requires Composer class filenames to match class names. -->
+	<rule ref="WordPress.Files.FileName"><severity>0</severity></rule>
+	<config name="minimum_supported_wp_version" value="6.6"/>
+	<config name="text_domain" value="jocky-media-offloader"/>
+</ruleset>
