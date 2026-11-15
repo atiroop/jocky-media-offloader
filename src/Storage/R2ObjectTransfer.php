@@ -461,7 +461,58 @@ final class R2ObjectTransfer {
 		} else {
 			$category = 'api_failure';
 		}
-		return 'r2_' . $operation . '_' . $category;
+		// Persist only compact allowlisted fields in the existing 64-character queue column.
+		$operations    = array(
+			'head_object'               => 'head',
+			'put_object'                => 'put',
+			'multipart_transfer'        => 'multi',
+			'create_multipart_upload'   => 'create',
+			'list_parts'                => 'parts',
+			'upload_part'               => 'part',
+			'complete_multipart_upload' => 'complete',
+			'abort_multipart_upload'    => 'abort',
+		);
+		$categories    = array(
+			'permission_denied'     => 'perm',
+			'authentication_failed' => 'auth',
+			'checksum_rejected'     => 'checksum',
+			'timeout'               => 'timeout',
+			'clock_skew'            => 'skew',
+			'temporary_failure'     => 'temporary',
+			'unsupported_request'   => 'unsupported',
+			'request_rejected'      => 'rejected',
+			'service_failure'       => 'service',
+			'network_failure'       => 'network',
+			'api_failure'           => 'api',
+		);
+		$allowed_codes = array(
+			'AccessDenied',
+			'Unauthorized',
+			'InvalidAccessKeyId',
+			'SignatureDoesNotMatch',
+			'ExpiredToken',
+			'ExpiredRequest',
+			'BadDigest',
+			'InvalidDigest',
+			'RequestTimeout',
+			'RequestTimeTooSkewed',
+			'SlowDown',
+			'TooManyRequests',
+			'NotImplemented',
+			'NotSupported',
+			'InvalidRequest',
+			'InvalidArgument',
+			'InvalidBucketName',
+			'InternalError',
+			'ServiceUnavailable',
+			'NoSuchBucket',
+			'NoSuchKey',
+			'NotFound',
+		);
+		$s3_code       = in_array( $code, $allowed_codes, true ) ? $code : 'Unknown';
+		$status        = (int) $exception->getStatusCode();
+		$status        = $status >= 100 && $status <= 599 ? (string) $status : '000';
+		return 'r2d_' . ( $operations[ $operation ] ?? 'api' ) . '_' . ( $categories[ $category ] ?? 'api' ) . '_' . $status . '_' . $s3_code;
 	}
 
 	/** Compare size and stable filesystem identity captured in the manifest.

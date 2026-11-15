@@ -20,4 +20,19 @@ final class TransferDiagnosticsTest extends TestCase {
 		self::assertStringContainsString( 'older result', $message );
 		self::assertStringNotContainsString( 'secret', strtolower( $message ) );
 	}
+
+	public function test_diagnostic_displays_operation_status_and_allowlisted_s3_code(): void {
+		$message = ( new TransferDiagnostics() )->message( 'r2d_put_checksum_400_BadDigest' );
+		self::assertStringContainsString( 'PutObject', $message );
+		self::assertStringContainsString( 'HTTP status: 400', $message );
+		self::assertStringContainsString( 'R2 error code: BadDigest', $message );
+		self::assertStringContainsString( 'checksum', strtolower( $message ) );
+	}
+
+	public function test_unknown_s3_error_text_is_never_displayed(): void {
+		$message = ( new TransferDiagnostics() )->message( 'r2d_put_rejected_502_Unknown' );
+		self::assertStringContainsString( 'HTTP status: 502', $message );
+		self::assertStringContainsString( 'not provided or unrecognized', $message );
+		self::assertStringNotContainsString( 'authorization', strtolower( $message ) );
+	}
 }

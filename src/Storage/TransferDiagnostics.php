@@ -16,6 +16,36 @@ final class TransferDiagnostics {
 	 * @param string $code Persisted safe diagnostic code.
 	 */
 	public function message( string $code ): string {
+		if ( 1 === preg_match( '/\Ar2d_(head|put|multi|create|parts|part|complete|abort)_(perm|auth|checksum|timeout|skew|temporary|unsupported|rejected|service|network|api)_([0-9]{3})_(AccessDenied|Unauthorized|InvalidAccessKeyId|SignatureDoesNotMatch|ExpiredToken|ExpiredRequest|BadDigest|InvalidDigest|RequestTimeout|RequestTimeTooSkewed|SlowDown|TooManyRequests|NotImplemented|NotSupported|InvalidRequest|InvalidArgument|InvalidBucketName|InternalError|ServiceUnavailable|NoSuchBucket|NoSuchKey|NotFound|Unknown)\z/', $code, $matches ) ) {
+			$operations = array(
+				'head'     => 'head_object',
+				'put'      => 'put_object',
+				'multi'    => 'multipart_transfer',
+				'create'   => 'create_multipart_upload',
+				'parts'    => 'list_parts',
+				'part'     => 'upload_part',
+				'complete' => 'complete_multipart_upload',
+				'abort'    => 'abort_multipart_upload',
+			);
+			$categories = array(
+				'perm'        => 'permission_denied',
+				'auth'        => 'authentication_failed',
+				'checksum'    => 'checksum_rejected',
+				'timeout'     => 'timeout',
+				'skew'        => 'clock_skew',
+				'temporary'   => 'temporary_failure',
+				'unsupported' => 'unsupported_request',
+				'rejected'    => 'request_rejected',
+				'service'     => 'service_failure',
+				'network'     => 'network_failure',
+				'api'         => 'api_failure',
+			);
+			$base       = $this->message( 'r2_' . $operations[ $matches[1] ] . '_' . $categories[ $matches[2] ] );
+			$status     = '000' === $matches[3] ? __( 'not available', 'jocky-media-offloader' ) : $matches[3];
+			$s3_code    = 'Unknown' === $matches[4] ? __( 'not provided or unrecognized', 'jocky-media-offloader' ) : $matches[4];
+			// translators: 1: diagnostic classification, 2: API operation, 3: HTTP status or not available, 4: allowlisted S3 error code.
+			return sprintf( __( '%1$s Operation: %2$s. HTTP status: %3$s. R2 error code: %4$s.', 'jocky-media-offloader' ), $base, $this->operation_label( $matches[1] ), $status, $s3_code );
+		}
 		$operations = array(
 			'head_object'               => 'HeadObject',
 			'put_object'                => 'PutObject',
@@ -89,5 +119,22 @@ final class TransferDiagnostics {
 			'invalid_source'       => __( 'The local source file failed validation. Review the file path and manifest before retrying.', 'jocky-media-offloader' ),
 		);
 		return $legacy[ $code ] ?? __( 'The queue step failed. Review the job state and local source file before retrying.', 'jocky-media-offloader' );
+	}
+
+	/** Resolve a compact persisted API operation alias to its display name.
+	 *
+	 * @param string $alias Persisted safe alias.
+	 */
+	private function operation_label( string $alias ): string {
+		return array(
+			'head'     => 'HeadObject',
+			'put'      => 'PutObject',
+			'multi'    => 'Multipart transfer',
+			'create'   => 'CreateMultipartUpload',
+			'parts'    => 'ListParts',
+			'part'     => 'UploadPart',
+			'complete' => 'CompleteMultipartUpload',
+			'abort'    => 'AbortMultipartUpload',
+		)[ $alias ] ?? 'R2 API';
 	}
 }

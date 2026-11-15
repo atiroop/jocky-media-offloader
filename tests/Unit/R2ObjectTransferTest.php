@@ -130,7 +130,7 @@ final class R2ObjectTransferTest extends TestCase {
 			( new R2ObjectTransfer() )->transfer( $client, $GLOBALS['jmo_transfer_manifest'], $this->path, 'test-bucket' );
 			self::fail( 'The network failure should be surfaced.' );
 		} catch ( TransferFailure $failure ) {
-			self::assertSame( 'r2_put_object_network_failure', $failure->safe_code );
+			self::assertSame( 'r2d_put_network_000_Unknown', $failure->safe_code );
 			self::assertStringNotContainsString( 'authorization', $failure->getMessage() );
 		}
 	}
@@ -149,7 +149,7 @@ final class R2ObjectTransferTest extends TestCase {
 			( new R2ObjectTransfer() )->transfer( $client, $GLOBALS['jmo_transfer_manifest'], $this->path, 'test-bucket' );
 			self::fail( 'The timeout should be surfaced.' );
 		} catch ( TransferFailure $failure ) {
-			self::assertSame( 'r2_put_object_timeout', $failure->safe_code );
+			self::assertSame( 'r2d_put_timeout_000_Unknown', $failure->safe_code );
 			self::assertStringNotContainsString( 'private transport detail', $failure->getMessage() );
 		}
 	}
@@ -191,7 +191,7 @@ final class R2ObjectTransferTest extends TestCase {
 			( new R2ObjectTransfer() )->transfer( $client, $GLOBALS['jmo_transfer_manifest'], $this->path, 'test-bucket' );
 			self::fail( 'R2 checksum rejection should be surfaced.' );
 		} catch ( TransferFailure $failure ) {
-			self::assertSame( 'r2_put_object_checksum_rejected', $failure->safe_code );
+			self::assertSame( 'r2d_put_checksum_400_BadDigest', $failure->safe_code );
 			self::assertStringNotContainsString( 'secret request header', $failure->getMessage() );
 		}
 	}
@@ -215,7 +215,7 @@ final class R2ObjectTransferTest extends TestCase {
 			( new R2ObjectTransfer() )->transfer( $client, $GLOBALS['jmo_transfer_manifest'], $this->path, 'test-bucket' );
 			self::fail( 'HeadObject denial should be surfaced.' );
 		} catch ( TransferFailure $failure ) {
-			self::assertSame( 'r2_head_object_permission_denied', $failure->safe_code );
+			self::assertSame( 'r2d_head_perm_403_AccessDenied', $failure->safe_code );
 			self::assertStringNotContainsString( 'secret', $failure->getMessage() );
 		}
 	}
