@@ -75,6 +75,17 @@ final class StorageTest extends TestCase {
 		self::assertSame( 'missing_credentials', $client->test_connection( new Configuration() )->status );
 	}
 
+	public function test_missing_bucket_configuration_fails_before_client_creation(): void {
+		$GLOBALS['jmo_settings']['bucket'] = '';
+		$client = new R2StorageClient(
+			new CredentialsProvider(),
+			static function (): object {
+				throw new RuntimeException( 'Client must not be created for an empty bucket.' );
+			}
+		);
+		self::assertSame( 'invalid_configuration', $client->test_connection( new Configuration() )->status );
+	}
+
 	public function test_authentication_and_permission_errors_are_sanitized(): void {
 		$command = $this->createMock( CommandInterface::class );
 		foreach ( array(
