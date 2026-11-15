@@ -4,7 +4,7 @@ Tags: cloudflare, r2, media, storage
 Requires at least: 6.6
 Tested up to: 7.1
 Requires PHP: 8.3
-Stable tag: 0.2.1
+Stable tag: 0.2.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -32,6 +32,9 @@ Define JMO_R2_ACCOUNT_ID, JMO_R2_ACCESS_KEY_ID, and JMO_R2_SECRET_ACCESS_KEY in 
 Test Connection sends an authenticated HEAD Bucket request only after an administrator selects the action. Offload jobs send media only after an administrator queues an attachment or enables automatic queueing. JMO does not delete, move, or rewrite local media, URLs, GUIDs, or JIO output files.
 
 == Changelog ==
+
+= 0.2.2 =
+* Show current job state when no diagnostic is recorded, and label stored errors on non-failed jobs as previous-attempt diagnostics.
 
 = 0.2.1 =
 * Add accessible AJAX R2 connection feedback, persistent results, and stale-result detection.

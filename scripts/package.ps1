@@ -3,7 +3,7 @@ $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $build = Join-Path $root 'build'
 $stage = Join-Path $build 'stage'
 $plugin = Join-Path $stage 'jocky-media-offloader'
-$zip = Join-Path $build 'jocky-media-offloader-0.2.1.zip'
+$zip = Join-Path $build 'jocky-media-offloader-0.2.2.zip'
 
 if (-not $build.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
 	throw 'Build directory escaped the project root.'
