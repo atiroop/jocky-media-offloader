@@ -12,6 +12,7 @@ namespace Jocky\MediaOffloader\Admin;
 use Jocky\MediaOffloader\Config\Configuration;
 use Jocky\MediaOffloader\Config\CredentialsProvider;
 use Jocky\MediaOffloader\Integration\JioDetector;
+use Jocky\MediaOffloader\Storage\ConnectionStatus;
 
 /** Renders the capability-gated system and storage diagnostics. */
 final class DiagnosticsPage {
@@ -53,7 +54,7 @@ final class DiagnosticsPage {
 		$config           = new Configuration();
 		$settings         = $config->all();
 		$jio              = ( new JioDetector() )->detect();
-		$last             = get_transient( 'jmo_last_connection_test' );
+		$last             = ( new ConnectionStatus( $config, $this->credentials ) )->current();
 		$last_status      = is_array( $last ) ? (string) ( $last['status'] ?? 'unknown' ) : 'not_run';
 		$credential_ready = null !== $this->credentials->get();
 		$settings_ready   = '' !== $settings['account_id'] && '' !== $settings['bucket'];
@@ -65,7 +66,8 @@ final class DiagnosticsPage {
 			'AWS SDK availability'        => $sdk_ready ? 'Available' : 'Unavailable',
 			'R2 configuration status'     => $settings_ready ? 'Configured' : 'Incomplete',
 			'Credential source'           => $this->credentials->source(),
-			'Latest connection test'      => is_array( $last ) ? (string) ( $last['status'] ?? 'Unknown' ) . ': ' . (string) ( $last['message'] ?? '' ) : 'Not run',
+			'Latest connection test'      => ! is_array( $last ) ? 'Not run' : ( ! empty( $last['stale'] ) ? 'Stale — run Test Connection again. The previous result is not current.' : ( new ConnectionStatus( $config, $this->credentials ) )->label( $last_status ) . ': ' . (string) $last['message'] ),
+			'Connection test time'        => is_array( $last ) ? $this->format_tested_at( (string) $last['tested_at'] ) : 'Not available',
 			'JIO plugin detection'        => $jio['active'] ? 'Active' . ( '' !== $jio['version'] ? ' (' . $jio['version'] . ')' : '' ) : ( '' !== $jio['version'] ? 'Installed but inactive' : 'Not active or not installed' ),
 			'Local file retention policy' => 'Enabled permanently. Local media is never changed or removed.',
 		);
@@ -73,7 +75,8 @@ final class DiagnosticsPage {
 			'AWS SDK availability'        => $sdk_ready ? 'success' : 'error',
 			'R2 configuration status'     => $settings_ready ? 'success' : 'warning',
 			'Credential source'           => $credential_ready ? 'success' : 'warning',
-			'Latest connection test'      => 'connected' === $last_status ? 'success' : ( in_array( $last_status, array( 'not_run', 'insufficient_permissions' ), true ) ? 'warning' : 'error' ),
+			'Latest connection test'      => is_array( $last ) && ! empty( $last['stale'] ) ? 'warning' : ( 'connected' === $last_status ? 'success' : ( in_array( $last_status, array( 'not_run', 'insufficient_permissions' ), true ) ? 'warning' : 'error' ) ),
+			'Connection test time'        => 'neutral',
 			'JIO plugin detection'        => $jio['active'] ? 'success' : 'warning',
 			'Local file retention policy' => 'success',
 		);
@@ -83,5 +86,14 @@ final class DiagnosticsPage {
 			echo '<tr><th scope="row">' . esc_html( $label ) . '</th><td><span class="jmo-status jmo-status--' . esc_attr( $state ) . '">' . esc_html( $value ) . '</span></td></tr>';
 		}
 		echo '</tbody></table></div>';
+	}
+
+	/** Format a saved UTC timestamp for the site's timezone.
+	 *
+	 * @param string $tested_at UTC ISO-8601 timestamp.
+	 */
+	private function format_tested_at( string $tested_at ): string {
+		$timestamp = strtotime( $tested_at );
+		return false === $timestamp ? __( 'Time unavailable', 'jocky-media-offloader' ) : wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp );
 	}
 }

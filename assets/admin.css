@@ -13,3 +13,16 @@
 .jmo-status--error {
 	color: #b32d2e;
 }
+
+#jmo-connection-feedback {
+	max-width: 720px;
+	margin-top: 12px;
+}
+
+#jmo-connection-feedback p {
+	margin: 0.7em 0;
+}
+
+#jmo-test-connection-button[disabled] {
+	cursor: wait;
+}

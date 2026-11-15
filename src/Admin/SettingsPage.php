@@ -11,7 +11,10 @@ namespace Jocky\MediaOffloader\Admin;
 
 use Jocky\MediaOffloader\Config\Configuration;
 use Jocky\MediaOffloader\Config\CredentialsProvider;
+use Jocky\MediaOffloader\Storage\ConnectionResult;
+use Jocky\MediaOffloader\Storage\ConnectionStatus;
 use Jocky\MediaOffloader\Storage\StorageClientFactory;
+use Throwable;
 
 /** Renders settings and runs explicit connection tests. */
 final class SettingsPage {
@@ -34,7 +37,7 @@ final class SettingsPage {
 	public function register(): void {
 		add_action( 'admin_menu', array( $this, 'menu' ) );
 		add_action( 'admin_init', array( $this, 'settings' ) );
-		add_action( 'admin_post_jmo_test_connection', array( $this, 'test_connection' ) );
+		add_action( 'wp_ajax_jmo_test_connection', array( $this, 'ajax_test_connection' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 	}
 
@@ -47,6 +50,29 @@ final class SettingsPage {
 		if ( false !== strpos( $hook_suffix, 'jmo-' ) || false !== strpos( $hook_suffix, 'jmo_' ) ) {
 			wp_enqueue_style( 'jmo-admin', plugins_url( 'assets/admin.css', JMO_FILE ), array(), JMO_VERSION );
 		}
+		if ( false === strpos( $hook_suffix, 'jmo-settings' ) ) {
+			return;
+		}
+		wp_enqueue_script( 'jmo-admin', plugins_url( 'assets/admin.js', JMO_FILE ), array(), JMO_VERSION, true );
+		wp_localize_script(
+			'jmo-admin',
+			'jmoConnectionTest',
+			array(
+				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+				'strings' => array(
+					'test'         => __( 'Test Connection', 'jocky-media-offloader' ),
+					'testing'      => __( 'Testing Connection...', 'jocky-media-offloader' ),
+					'checking'     => __( 'Checking Cloudflare R2 authentication and bucket access.', 'jocky-media-offloader' ),
+					'success'      => __( 'Connection Successful', 'jocky-media-offloader' ),
+					'failed'       => __( 'Connection Failed', 'jocky-media-offloader' ),
+					'expired'      => __( 'Your session expired. Refresh this page and try the connection test again.', 'jocky-media-offloader' ),
+					'unauthorized' => __( 'Your administrator access is no longer valid. Refresh the page and sign in again.', 'jocky-media-offloader' ),
+					'unexpected'   => __( 'The server returned an unexpected response. Refresh the page and try again.', 'jocky-media-offloader' ),
+					'network'      => __( 'Could not reach WordPress to complete the test. Check your network connection and try again.', 'jocky-media-offloader' ),
+					'lastTested'   => __( 'Last tested:', 'jocky-media-offloader' ),
+				),
+			)
+		);
 	}
 
 	/** Add the top-level menu and settings page. */
@@ -123,6 +149,7 @@ final class SettingsPage {
 		}
 		$this->configuration->all();
 		$credentials = new CredentialsProvider();
+		$connection  = ( new ConnectionStatus( $this->configuration, $credentials ) )->current();
 		$endpoint    = $this->configuration->endpoint();
 		echo '<div class="wrap"><h1>' . esc_html__( 'Jocky Media Offloader', 'jocky-media-offloader' ) . '</h1>';
 		settings_errors( Configuration::OPTION );
@@ -131,34 +158,95 @@ final class SettingsPage {
 		do_settings_sections( 'jmo-settings' );
 		echo '<table class="form-table"><tr><th>' . esc_html__( 'R2 Endpoint', 'jocky-media-offloader' ) . '</th><td><code>' . esc_html( '' === $endpoint ? 'Not configured' : $endpoint ) . '</code></td></tr><tr><th>' . esc_html__( 'R2 Region', 'jocky-media-offloader' ) . '</th><td><code>auto</code></td></tr><tr><th>' . esc_html__( 'Credentials Status', 'jocky-media-offloader' ) . '</th><td>' . esc_html( null !== $credentials->get() ? 'Ready (' . $credentials->source() . ')' : 'Not configured' ) . '</td></tr><tr><th>' . esc_html__( 'Keep Local Files', 'jocky-media-offloader' ) . '</th><td>' . esc_html__( 'Always enabled. JMO never moves or deletes local media.', 'jocky-media-offloader' ) . '</td></tr></table>';
 		submit_button( __( 'Save Settings', 'jocky-media-offloader' ) );
-		echo '</form><hr /><form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '"><input type="hidden" name="action" value="jmo_test_connection" />';
-		wp_nonce_field( 'jmo_test_connection' );
-		submit_button( __( 'Test Connection', 'jocky-media-offloader' ), 'secondary' );
-		echo '</form></div>';
+		echo '</form><hr /><form id="jmo-test-connection-form" method="post"><input type="hidden" name="action" value="jmo_test_connection" />';
+		wp_nonce_field( 'jmo_test_connection', 'nonce', false );
+		echo '<button type="submit" class="button button-secondary" id="jmo-test-connection-button" aria-describedby="jmo-connection-feedback">' . esc_html__( 'Test Connection', 'jocky-media-offloader' ) . '</button></form>';
+		$this->render_connection_feedback( $connection );
+		echo '</div>';
 	}
 
-	/** Run the administrator-triggered read-only connection diagnostic. */
-	public function test_connection(): void {
-		$this->authorize_connection_test();
-		$result = $this->factory->create()->test_connection( $this->configuration );
-		set_transient( 'jmo_last_connection_test', $result->to_array(), 10 * MINUTE_IN_SECONDS );
-		wp_safe_redirect(
-			add_query_arg(
+	/** Run the authenticated, read-only R2 diagnostic and return sanitized JSON. */
+	public function ajax_test_connection(): void {
+		$error = $this->authorize_ajax_connection_test();
+		if ( null !== $error ) {
+			wp_send_json_error(
 				array(
-					'page'     => 'jmo-settings',
-					'jmo_test' => $result->status,
+					'code'    => $error->get_error_code(),
+					'message' => $error->get_error_message(),
 				),
-				admin_url( 'admin.php' )
-			)
-		);
-		exit;
+				403
+			);
+		}
+		try {
+			$result = $this->factory->create()->test_connection( $this->configuration );
+		} catch ( Throwable ) {
+			$result = new ConnectionResult( 'client_failure', 'The R2 client could not complete the request.' );
+		}
+		$state = ( new ConnectionStatus( $this->configuration, new CredentialsProvider() ) )->record( $result );
+		if ( 'connected' === $state['status'] ) {
+			wp_send_json_success( $state );
+		}
+		wp_send_json_error( $state, 200 );
 	}
 
-	/** Enforce capability and nonce checks for the diagnostic action. */
-	public function authorize_connection_test(): void {
+	/** Validate capability and AJAX nonce without exposing WordPress's raw nonce error.
+	 *
+	 * @return \WP_Error|null Sanitized authorization failure, or null when authorized.
+	 */
+	public function authorize_ajax_connection_test(): ?\WP_Error {
 		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_die( esc_html__( 'You are not allowed to test storage connectivity.', 'jocky-media-offloader' ), '', array( 'response' => 403 ) );
+			return new \WP_Error( 'forbidden', __( 'You are not allowed to test storage connectivity.', 'jocky-media-offloader' ) );
 		}
-		check_admin_referer( 'jmo_test_connection' );
+		$nonce = isset( $_POST['nonce'] ) && is_string( $_POST['nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['nonce'] ) ) : '';
+		if ( '' === $nonce || ! wp_verify_nonce( $nonce, 'jmo_test_connection' ) ) {
+			return new \WP_Error( 'invalid_nonce', __( 'Your session expired. Refresh this page and try the connection test again.', 'jocky-media-offloader' ) );
+		}
+		return null;
+	}
+
+	/** Render the latest result using native WordPress notice classes.
+	 *
+	 * @param array<string,mixed>|null $connection Current or stale result.
+	 */
+	private function render_connection_feedback( ?array $connection ): void {
+		$class   = 'notice-info';
+		$heading = __( 'Connection Not Tested', 'jocky-media-offloader' );
+		$message = __( 'Run Test Connection to verify R2 authentication and bucket access.', 'jocky-media-offloader' );
+		$tested  = '';
+		$role    = 'status';
+		if ( is_array( $connection ) ) {
+			$tested = $this->format_tested_at( (string) $connection['tested_at'] );
+			if ( ! empty( $connection['stale'] ) ) {
+				$class   = 'notice-warning';
+				$heading = __( 'Connection Result Stale', 'jocky-media-offloader' );
+				$message = __( 'The account, bucket, or credential identity changed after this test. Run Test Connection again before relying on the result.', 'jocky-media-offloader' );
+			} elseif ( 'connected' === $connection['status'] ) {
+				$class   = 'notice-success';
+				$heading = __( 'Connection Successful', 'jocky-media-offloader' );
+				$message = ( new ConnectionStatus( $this->configuration, new CredentialsProvider() ) )->message( 'connected' );
+			} else {
+				$class   = 'notice-error';
+				$heading = __( 'Connection Failed', 'jocky-media-offloader' );
+				$message = ( new ConnectionStatus( $this->configuration, new CredentialsProvider() ) )->message( (string) $connection['status'] );
+				$role    = 'alert';
+			}
+		}
+		echo '<div id="jmo-connection-feedback" class="notice ' . esc_attr( $class ) . ' inline" role="' . esc_attr( $role ) . '" aria-live="polite" aria-atomic="true"><p><strong>' . esc_html( $heading ) . '</strong><br /><span class="jmo-connection-message">' . esc_html( $message ) . '</span>';
+		if ( '' !== $tested ) {
+			echo '<br /><span class="description">' . esc_html__( 'Last tested:', 'jocky-media-offloader' ) . ' ' . esc_html( $tested ) . '</span>';
+		}
+		echo '</p></div>';
+	}
+
+	/** Format the saved UTC time in the site's configured timezone.
+	 *
+	 * @param string $tested_at UTC ISO-8601 timestamp.
+	 */
+	private function format_tested_at( string $tested_at ): string {
+		$timestamp = strtotime( $tested_at );
+		if ( false === $timestamp ) {
+			return __( 'Time unavailable', 'jocky-media-offloader' );
+		}
+		return wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp );
 	}
 }
