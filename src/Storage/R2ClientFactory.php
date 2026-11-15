@@ -21,8 +21,11 @@ final class R2ClientFactory {
 	 */
 	public function __construct( private readonly CredentialsProvider $credentials ) {}
 
-	/** Create a configured R2 S3 client, or null when credentials/config are incomplete. */
-	public function create(): ?S3Client {
+	/** Create a configured R2 S3 client, or null when credentials/config are incomplete.
+	 *
+	 * @param callable|null $handler Optional AWS handler for request-level tests.
+	 */
+	public function create( ?callable $handler = null ): ?S3Client {
 		$credentials   = $this->credentials->get();
 		$configuration = new Configuration();
 		$config        = $configuration->all();
@@ -30,20 +33,24 @@ final class R2ClientFactory {
 		if ( null === $credentials || '' === $endpoint || '' === $config['bucket'] ) {
 			return null;
 		}
-		return new S3Client(
-			array(
-				'version'                 => 'latest',
-				'region'                  => 'auto',
-				'endpoint'                => $endpoint,
-				'use_path_style_endpoint' => true,
-				'credentials'             => array(
-					'key'    => $credentials['access_key'],
-					'secret' => $credentials['secret_key'],
-				),
-				'connect_timeout'         => 5,
-				'timeout'                 => 15,
-				'retries'                 => 0,
-			)
+		$options = array(
+			'version'                      => 'latest',
+			'region'                       => 'auto',
+			'endpoint'                     => $endpoint,
+			'use_path_style_endpoint'      => true,
+			'credentials'                  => array(
+				'key'    => $credentials['access_key'],
+				'secret' => $credentials['secret_key'],
+			),
+			'connect_timeout'              => 5,
+			'timeout'                      => 15,
+			'retries'                      => 0,
+			// R2 supports Content-MD5; avoid the AWS SDK's implicit CRC32 header unless an operation requires it.
+			'request_checksum_calculation' => 'when_required',
 		);
+		if ( null !== $handler ) {
+			$options['handler'] = $handler;
+		}
+		return new S3Client( $options );
 	}
 }
