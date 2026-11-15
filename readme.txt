@@ -4,7 +4,7 @@ Tags: cloudflare, r2, media, storage
 Requires at least: 6.6
 Tested up to: 7.1
 Requires PHP: 8.3
-Stable tag: 0.1.0
+Stable tag: 0.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -33,7 +33,10 @@ Test Connection sends an authenticated HEAD Bucket request only after an adminis
 
 == Changelog ==
 
-= 0.1.0 =
+= 0.2.0 =
 * Secure R2 configuration and read-only connection diagnostics.
 * Durable opt-in queue, safe manifests, bounded worker, conditional streaming/multipart uploads, and remote verification.
 * Keep Local Files enforcement, JIO pending-optimization state, admin dry-run, and job status controls.
+
+= 0.1.0 =
+* Initial foundation release with secure R2 configuration and read-only connection diagnostics.
