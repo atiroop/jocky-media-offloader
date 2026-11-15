@@ -1,6 +1,6 @@
 {
   "name": "atiroop/jocky-media-offloader",
-  "description": "Safe Cloudflare R2 connectivity foundation for WordPress media.",
+  "description": "Safe Cloudflare R2 media offloading for WordPress with local file retention.",
   "type": "wordpress-plugin",
   "license": "GPL-2.0-or-later",
   "require": {

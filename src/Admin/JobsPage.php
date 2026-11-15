@@ -15,6 +15,7 @@ use Jocky\MediaOffloader\Integration\JioReadiness;
 use Jocky\MediaOffloader\Media\ManifestBuilder;
 use Jocky\MediaOffloader\Queue\JobRepository;
 use Jocky\MediaOffloader\Queue\QueueWorker;
+use Jocky\MediaOffloader\Storage\TransferDiagnostics;
 
 /** Renders safe job controls and sanitized diagnostics. */
 final class JobsPage {
@@ -105,7 +106,7 @@ final class JobsPage {
 		foreach ( $rows as $row ) {
 			$total    = is_string( $row['manifest_json'] ) ? count( json_decode( $row['manifest_json'], true )['files'] ?? array() ) : 0;
 			$progress = (int) $row['uploaded_count'] . ' / ' . (int) $row['verified_count'] . ' of ' . $total;
-			$message  = 'pending_optimization' === $row['status'] ? __( 'Waiting for explicit JIO completion confirmation.', 'jocky-media-offloader' ) : (string) ( $row['error_code'] ?? '' );
+			$message  = 'pending_optimization' === $row['status'] ? __( 'Waiting for explicit JIO completion confirmation.', 'jocky-media-offloader' ) : ( new TransferDiagnostics() )->message( (string) ( $row['error_code'] ?? '' ) );
 			echo '<tr><td>' . esc_html( (string) $row['id'] ) . '</td><td>' . esc_html( (string) $row['attachment_id'] ) . '</td><td>' . esc_html( str_replace( '_', ' ', (string) $row['status'] ) ) . '</td><td>' . esc_html( $progress ) . '</td><td>' . esc_html( (string) $row['attempts'] ) . '</td><td>' . esc_html( $message ) . '</td></tr>';
 		}
 		echo '</tbody></table></div>';

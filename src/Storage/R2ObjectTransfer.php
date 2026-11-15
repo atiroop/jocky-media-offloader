@@ -67,12 +67,15 @@ final class R2ObjectTransfer {
 				}
 				throw new TransferFailure( 'object_collision' );
 			}
+			$operation = $size < $this->multipart_threshold() ? 'put_object' : 'complete_multipart_upload';
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The exception contains only a fixed internal diagnostic category.
-			throw new TransferFailure( $this->safe_error_code( $exception ) );
+			throw new TransferFailure( $this->safe_error_code( $exception, $operation ) );
 		} catch ( TransferFailure $failure ) {
 			throw $failure;
 		} catch ( \Throwable ) {
-			throw new TransferFailure( 'transfer_failed' );
+			$operation = $size < $this->multipart_threshold() ? 'put_object' : 'multipart_transfer';
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This contains a fixed operation and category code only.
+			throw new TransferFailure( 'r2_' . $operation . '_client_failure' );
 		}
 		$remote = $this->head_if_present( $client, $bucket, $key );
 		if ( null === $remote ) {
@@ -137,7 +140,8 @@ final class R2ObjectTransfer {
 	 * @param int    $size   Source size in bytes.
 	 * @param string $mime   Detected content type.
 	 * @param string $sha    SHA-256 digest.
-	 * @throws TransferFailure When the source stream cannot be opened.
+	 * @throws AwsException    When a create-only precondition needs reconciliation.
+	 * @throws TransferFailure When the source stream cannot be opened or an R2 response is rejected.
 	 */
 	private function put_small( object $client, string $bucket, string $key, string $path, int $size, string $mime, string $sha ): void {
 		$md5 = hash_file( 'md5', $path, true );
@@ -149,19 +153,27 @@ final class R2ObjectTransfer {
 			throw new TransferFailure( 'source_unavailable' );
 		}
 		try {
-			$client->putObject(
-				array(
-					'Bucket'        => $bucket,
-					'Key'           => $key,
-					'Body'          => $stream,
-					'ContentLength' => $size,
-					'ContentType'   => $mime,
-					'IfNoneMatch'   => '*',
-					// R2 validates the uploaded body with the supported Content-MD5 header.
-					'ContentMD5'    => base64_encode( $md5 ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- S3 Content-MD5 is a required base64-encoded digest header.
-					'Metadata'      => array( 'jmo-sha256' => $sha ),
-				)
-			);
+			try {
+				$client->putObject(
+					array(
+						'Bucket'        => $bucket,
+						'Key'           => $key,
+						'Body'          => $stream,
+						'ContentLength' => $size,
+						'ContentType'   => $mime,
+						'IfNoneMatch'   => '*',
+						// R2 validates the uploaded body with the supported Content-MD5 header.
+						'ContentMD5'    => base64_encode( $md5 ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- S3 Content-MD5 is a required base64-encoded digest header.
+					'Metadata'          => array( 'jmo-sha256' => $sha ),
+					)
+				);
+			} catch ( AwsException $exception ) {
+				if ( $this->is_precondition_failure( $exception ) ) {
+					throw $exception;
+				}
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This contains only a fixed diagnostic code.
+				throw new TransferFailure( $this->safe_error_code( $exception, 'put_object' ) );
+			}
 		} finally {
 			fclose( $stream );
 		}
@@ -188,14 +200,19 @@ final class R2ObjectTransfer {
 		$upload_id = is_string( $resume['upload_id'] ?? null ) ? $resume['upload_id'] : '';
 		$parts     = is_array( $resume['parts'] ?? null ) ? $resume['parts'] : array();
 		if ( '' === $upload_id ) {
-			$result    = $client->createMultipartUpload(
-				array(
-					'Bucket'      => $bucket,
-					'Key'         => $key,
-					'ContentType' => $mime,
-					'Metadata'    => array( 'jmo-sha256' => $sha ),
-				)
-			);
+			try {
+				$result = $client->createMultipartUpload(
+					array(
+						'Bucket'      => $bucket,
+						'Key'         => $key,
+						'ContentType' => $mime,
+						'Metadata'    => array( 'jmo-sha256' => $sha ),
+					)
+				);
+			} catch ( AwsException $exception ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This contains only a fixed diagnostic code.
+				throw new TransferFailure( $this->safe_error_code( $exception, 'create_multipart_upload' ) );
+			}
 			$upload_id = (string) ( $result['UploadId'] ?? '' );
 			if ( '' === $upload_id ) {
 				throw new TransferFailure( 'multipart_start_failed' );
@@ -209,18 +226,24 @@ final class R2ObjectTransfer {
 				$parts = $this->server_parts( $client, $bucket, $key, $upload_id );
 			} catch ( AwsException $exception ) {
 				if ( 'NoSuchUpload' !== (string) $exception->getAwsErrorCode() ) {
-					throw $exception;
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This contains only a fixed diagnostic code.
+					throw new TransferFailure( $this->safe_error_code( $exception, 'list_parts' ) );
 				}
 				$upload_id = '';
 				$parts     = array();
-				$result    = $client->createMultipartUpload(
-					array(
-						'Bucket'      => $bucket,
-						'Key'         => $key,
-						'ContentType' => $mime,
-						'Metadata'    => array( 'jmo-sha256' => $sha ),
-					)
-				);
+				try {
+					$result = $client->createMultipartUpload(
+						array(
+							'Bucket'      => $bucket,
+							'Key'         => $key,
+							'ContentType' => $mime,
+							'Metadata'    => array( 'jmo-sha256' => $sha ),
+						)
+					);
+				} catch ( AwsException $exception ) {
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This contains only a fixed diagnostic code.
+					throw new TransferFailure( $this->safe_error_code( $exception, 'create_multipart_upload' ) );
+				}
 				$upload_id = (string) ( $result['UploadId'] ?? '' );
 				if ( '' === $upload_id ) {
 					throw new TransferFailure( 'multipart_start_failed' );
@@ -262,17 +285,22 @@ final class R2ObjectTransfer {
 				if ( strlen( $body ) !== $length ) {
 					throw new TransferFailure( 'source_read_failed' );
 				}
-				$result           = $client->uploadPart(
-					array(
-						'Bucket'        => $bucket,
-						'Key'           => $key,
-						'UploadId'      => $upload_id,
-						'PartNumber'    => $number,
-						'Body'          => $body,
-						'ContentLength' => $length,
-						'ContentMD5'    => base64_encode( md5( $body, true ) ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- R2 supports Content-MD5 on each UploadPart.
-					)
-				);
+				try {
+					$result = $client->uploadPart(
+						array(
+							'Bucket'        => $bucket,
+							'Key'           => $key,
+							'UploadId'      => $upload_id,
+							'PartNumber'    => $number,
+							'Body'          => $body,
+							'ContentLength' => $length,
+							'ContentMD5'    => base64_encode( md5( $body, true ) ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- R2 supports Content-MD5 on each UploadPart.
+						)
+					);
+				} catch ( AwsException $exception ) {
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This contains only a fixed diagnostic code.
+					throw new TransferFailure( $this->safe_error_code( $exception, 'upload_part' ) );
+				}
 				$parts[ $number ] = array(
 					'PartNumber' => $number,
 					'ETag'       => (string) ( $result['ETag'] ?? '' ),
@@ -297,24 +325,37 @@ final class R2ObjectTransfer {
 			return false;
 		}
 		if ( ! hash_equals( $sha, (string) hash_file( 'sha256', $path ) ) ) {
-			$client->abortMultipartUpload(
-				array(
-					'Bucket'   => $bucket,
-					'Key'      => $key,
-					'UploadId' => $upload_id,
-				)
-			);
+			try {
+				$client->abortMultipartUpload(
+					array(
+						'Bucket'   => $bucket,
+						'Key'      => $key,
+						'UploadId' => $upload_id,
+					)
+				);
+			} catch ( AwsException $exception ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This contains only a fixed diagnostic code.
+				throw new TransferFailure( $this->safe_error_code( $exception, 'abort_multipart_upload' ) );
+			}
 			throw new TransferFailure( 'source_changed' );
 		}
-		$client->completeMultipartUpload(
-			array(
-				'Bucket'          => $bucket,
-				'Key'             => $key,
-				'UploadId'        => $upload_id,
-				'MultipartUpload' => array( 'Parts' => array_values( $parts ) ),
-				'IfNoneMatch'     => '*',
-			)
-		);
+		try {
+			$client->completeMultipartUpload(
+				array(
+					'Bucket'          => $bucket,
+					'Key'             => $key,
+					'UploadId'        => $upload_id,
+					'MultipartUpload' => array( 'Parts' => array_values( $parts ) ),
+					'IfNoneMatch'     => '*',
+				)
+			);
+		} catch ( AwsException $exception ) {
+			if ( $this->is_precondition_failure( $exception ) ) {
+				throw $exception;
+			}
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- This contains only a fixed diagnostic code.
+			throw new TransferFailure( $this->safe_error_code( $exception, 'complete_multipart_upload' ) );
+		}
 		return true;
 	}
 
@@ -376,9 +417,9 @@ final class R2ObjectTransfer {
 				return null;
 			}
 			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- The exception contains only a fixed internal diagnostic code.
-			throw new TransferFailure( $this->safe_error_code( $exception ) );
+			throw new TransferFailure( $this->safe_error_code( $exception, 'head_object' ) );
 		} catch ( \Throwable ) {
-			throw new TransferFailure( 'remote_verification_failed' );
+			throw new TransferFailure( 'r2_head_object_client_failure' );
 		}
 	}
 
@@ -393,16 +434,85 @@ final class R2ObjectTransfer {
 	/** Map an SDK exception to a fixed non-sensitive diagnostic category.
 	 *
 	 * @param AwsException $exception Storage exception.
+	 * @param string       $operation Fixed S3 operation identifier.
 	 */
-	private function safe_error_code( AwsException $exception ): string {
+	private function safe_error_code( AwsException $exception, string $operation ): string {
 		$code = (string) $exception->getAwsErrorCode();
-		if ( in_array( $code, array( 'AccessDenied', 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'ExpiredToken' ), true ) ) {
-			return 'r2_access_denied';
+		if ( 'AccessDenied' === $code || 'Unauthorized' === $code ) {
+			$category = 'permission_denied';
+		} elseif ( in_array( $code, array( 'InvalidAccessKeyId', 'SignatureDoesNotMatch', 'ExpiredToken', 'ExpiredRequest' ), true ) ) {
+			$category = 'authentication_failed';
+		} elseif ( in_array( $code, array( 'BadDigest', 'InvalidDigest' ), true ) ) {
+			$category = 'checksum_rejected';
+		} elseif ( 'RequestTimeout' === $code || 28 === (int) $exception->getTransferInfo( 'errno' ) ) {
+			$category = 'timeout';
+		} elseif ( 'RequestTimeTooSkewed' === $code ) {
+			$category = 'clock_skew';
+		} elseif ( in_array( $code, array( 'SlowDown', 'TooManyRequests' ), true ) || in_array( (int) $exception->getStatusCode(), array( 408, 429 ), true ) ) {
+			$category = 'temporary_failure';
+		} elseif ( in_array( $code, array( 'NotImplemented', 'NotSupported' ), true ) ) {
+			$category = 'unsupported_request';
+		} elseif ( in_array( $code, array( 'InvalidRequest', 'InvalidArgument', 'InvalidBucketName' ), true ) || ( (int) $exception->getStatusCode() >= 400 && (int) $exception->getStatusCode() < 500 ) ) {
+			$category = 'request_rejected';
+		} elseif ( (int) $exception->getStatusCode() >= 500 ) {
+			$category = 'service_failure';
+		} elseif ( 0 === (int) $exception->getStatusCode() ) {
+			$category = 'network_failure';
+		} else {
+			$category = 'api_failure';
 		}
-		if ( in_array( $code, array( 'SlowDown', 'RequestTimeout', 'RequestTimeTooSkewed' ), true ) ) {
-			return 'r2_temporary_failure';
-		}
-		return 0 === (int) $exception->getStatusCode() ? 'r2_network_failure' : 'r2_transfer_failure';
+		// Persist only compact allowlisted fields in the existing 64-character queue column.
+		$operations    = array(
+			'head_object'               => 'head',
+			'put_object'                => 'put',
+			'multipart_transfer'        => 'multi',
+			'create_multipart_upload'   => 'create',
+			'list_parts'                => 'parts',
+			'upload_part'               => 'part',
+			'complete_multipart_upload' => 'complete',
+			'abort_multipart_upload'    => 'abort',
+		);
+		$categories    = array(
+			'permission_denied'     => 'perm',
+			'authentication_failed' => 'auth',
+			'checksum_rejected'     => 'checksum',
+			'timeout'               => 'timeout',
+			'clock_skew'            => 'skew',
+			'temporary_failure'     => 'temporary',
+			'unsupported_request'   => 'unsupported',
+			'request_rejected'      => 'rejected',
+			'service_failure'       => 'service',
+			'network_failure'       => 'network',
+			'api_failure'           => 'api',
+		);
+		$allowed_codes = array(
+			'AccessDenied',
+			'Unauthorized',
+			'InvalidAccessKeyId',
+			'SignatureDoesNotMatch',
+			'ExpiredToken',
+			'ExpiredRequest',
+			'BadDigest',
+			'InvalidDigest',
+			'RequestTimeout',
+			'RequestTimeTooSkewed',
+			'SlowDown',
+			'TooManyRequests',
+			'NotImplemented',
+			'NotSupported',
+			'InvalidRequest',
+			'InvalidArgument',
+			'InvalidBucketName',
+			'InternalError',
+			'ServiceUnavailable',
+			'NoSuchBucket',
+			'NoSuchKey',
+			'NotFound',
+		);
+		$s3_code       = in_array( $code, $allowed_codes, true ) ? $code : 'Unknown';
+		$status        = (int) $exception->getStatusCode();
+		$status        = $status >= 100 && $status <= 599 ? (string) $status : '000';
+		return 'r2d_' . ( $operations[ $operation ] ?? 'api' ) . '_' . ( $categories[ $category ] ?? 'api' ) . '_' . $status . '_' . $s3_code;
 	}
 
 	/** Compare size and stable filesystem identity captured in the manifest.

@@ -48,4 +48,27 @@ final class CredentialsProvider {
 		$credentials = $this->get();
 		return null === $credentials ? 'Not configured' : $credentials['source'];
 	}
+
+	/** Return a keyed, non-reversible identity for stale-result detection.
+	 *
+	 * The credentials themselves are never returned or persisted by this method.
+	 */
+	public function identity_fingerprint(): ?string {
+		$constant_pair = array(
+			defined( 'JMO_R2_ACCESS_KEY_ID' ) && is_string( constant( 'JMO_R2_ACCESS_KEY_ID' ) ) ? constant( 'JMO_R2_ACCESS_KEY_ID' ) : '',
+			defined( 'JMO_R2_SECRET_ACCESS_KEY' ) && is_string( constant( 'JMO_R2_SECRET_ACCESS_KEY' ) ) ? constant( 'JMO_R2_SECRET_ACCESS_KEY' ) : '',
+		);
+		if ( '' !== $constant_pair[0] || '' !== $constant_pair[1] ) {
+			$source = 'wp-config.php';
+			$pair   = $constant_pair;
+		} else {
+			$source = 'environment';
+			$pair   = array( (string) getenv( 'JMO_R2_ACCESS_KEY_ID' ), (string) getenv( 'JMO_R2_SECRET_ACCESS_KEY' ) );
+		}
+		if ( ! function_exists( 'wp_salt' ) ) {
+			return null;
+		}
+		$identity = $source . "\0" . $pair[0] . "\0" . $pair[1];
+		return hash_hmac( 'sha256', $identity, wp_salt( 'auth' ) );
+	}
 }

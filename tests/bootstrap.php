@@ -17,3 +17,9 @@ if ( ! function_exists( 'wp_normalize_path' ) ) {
 		return str_replace( '\\', '/', $path );
 	}
 }
+
+if ( ! function_exists( '__' ) ) {
+	function __( string $text, ?string $domain = null ): string {
+		return $text;
+	}
+}

@@ -47,9 +47,9 @@ final class OffloadQueueTest extends WP_UnitTestCase {
 		Plugin::activate();
 		$wpdb->query( 'DELETE FROM ' . QueueSchema::objects_table() );
 		$wpdb->query( 'DELETE FROM ' . QueueSchema::jobs_table() );
-		$jobs     = new JobRepository();
-		$job_id   = $jobs->enqueue( 79, $this->manifest() );
-		$token    = str_repeat( 'e', 64 );
+		$jobs   = new JobRepository();
+		$job_id = $jobs->enqueue( 79, $this->manifest() );
+		$token  = str_repeat( 'e', 64 );
 		$jobs->claim_next( $token );
 		self::assertTrue( $jobs->release( $job_id, $token, 'pending', 'upload', 'r2_network_failure', 60 ) );
 		$job = $jobs->get( $job_id );
@@ -59,15 +59,48 @@ final class OffloadQueueTest extends WP_UnitTestCase {
 		self::assertNull( $jobs->claim_next( str_repeat( 'f', 64 ) ) );
 	}
 
+	public function test_automatic_failures_stop_at_the_maximum_attempt_count(): void {
+		global $wpdb;
+		Plugin::activate();
+		$wpdb->query( 'DELETE FROM ' . QueueSchema::objects_table() );
+		$wpdb->query( 'DELETE FROM ' . QueueSchema::jobs_table() );
+		$jobs   = new JobRepository();
+		$job_id = $jobs->enqueue( 80, $this->manifest() );
+
+		for ( $attempt = 1; $attempt <= JobRepository::MAX_ATTEMPTS; ++$attempt ) {
+			$token   = str_pad( (string) $attempt, 64, 'a' );
+			$claimed = $jobs->claim_next( $token );
+			self::assertSame( $job_id, (int) $claimed['id'] );
+			self::assertTrue( $jobs->release( $job_id, $token, 'pending', 'upload', 'r2_put_object_request_rejected', 0 ) );
+		}
+
+		$failed = $jobs->get( $job_id );
+		self::assertSame( 'failed', $failed['status'] );
+		self::assertSame( JobRepository::MAX_ATTEMPTS, (int) $failed['attempts'] );
+		self::assertSame( 'r2_put_object_request_rejected', $failed['error_code'] );
+		self::assertNull( $jobs->claim_next( str_repeat( 'f', 64 ) ) );
+	}
+
 	public function test_jio_confirmation_is_required_only_for_supported_images(): void {
 		$attachment_id = self::factory()->attachment->create( array( 'post_mime_type' => 'image/jpeg' ) );
 		$detector      = new JioDetector(
-			static fn (): array => array( 'jocky-image-optimizer/jocky-image-optimizer.php' => array( 'Name' => 'Jocky Image Optimizer', 'TextDomain' => 'jocky-image-optimizer', 'Version' => '0.6.1-beta.1' ) ),
+			static fn (): array => array(
+				'jocky-image-optimizer/jocky-image-optimizer.php' => array(
+					'Name'       => 'Jocky Image Optimizer',
+					'TextDomain' => 'jocky-image-optimizer',
+					'Version'    => '0.6.1-beta.1',
+				),
+			),
 			static fn ( string $file ): bool => 'jocky-image-optimizer/jocky-image-optimizer.php' === $file
 		);
-		$readiness = new JioReadiness( $detector );
+		$readiness     = new JioReadiness( $detector );
 		self::assertTrue( $readiness->requires_confirmation( $attachment_id ) );
-		wp_update_post( array( 'ID' => $attachment_id, 'post_mime_type' => 'application/pdf' ) );
+		wp_update_post(
+			array(
+				'ID'             => $attachment_id,
+				'post_mime_type' => 'application/pdf',
+			)
+		);
 		self::assertFalse( $readiness->requires_confirmation( $attachment_id ) );
 	}
 

@@ -7,6 +7,7 @@ use Jocky\MediaOffloader\Admin\DiagnosticsPage;
 use Jocky\MediaOffloader\Admin\SettingsPage;
 use Jocky\MediaOffloader\Config\CredentialsProvider;
 use Jocky\MediaOffloader\Plugin;
+use Jocky\MediaOffloader\Storage\ConnectionStatus;
 use Jocky\MediaOffloader\Storage\StorageClientFactory;
 use WP_UnitTestCase;
 
@@ -40,27 +41,36 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 	public function test_connection_action_rejects_invalid_nonce(): void {
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 		$settings = new SettingsPage( new StorageClientFactory( new CredentialsProvider() ) );
-		$_REQUEST = array();
-		$this->expectException( \WPDieException::class );
-		$settings->authorize_connection_test();
+		$_POST    = array( 'nonce' => 'invalid' );
+		self::assertSame( 'invalid_nonce', $settings->authorize_ajax_connection_test()->get_error_code() );
+	}
+
+	public function test_connection_action_requires_administrator_capability(): void {
+		wp_set_current_user( 0 );
+		$settings = new SettingsPage( new StorageClientFactory( new CredentialsProvider() ) );
+		$_POST    = array();
+		self::assertSame( 'forbidden', $settings->authorize_ajax_connection_test()->get_error_code() );
 	}
 
 	public function test_diagnostics_escapes_transient_text_and_jio_is_optional(): void {
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
-		set_transient(
-			'jmo_last_connection_test',
+		update_option(
+			ConnectionStatus::OPTION,
 			array(
-				'status'  => '<script>xss</script>',
-				'message' => 'safe',
-			),
-			60
+				'status'                  => 'connected',
+				'message'                 => '<script>xss</script>',
+				'tested_at'               => gmdate( 'c' ),
+				'settings_fingerprint'    => 'old-fingerprint',
+				'credential_fingerprint'  => 'old-credential-fingerprint',
+			)
 		);
 		$diagnostics = new DiagnosticsPage( new CredentialsProvider() );
 		ob_start();
 		$diagnostics->render();
 		$html = (string) ob_get_clean();
 		self::assertStringNotContainsString( '<script>xss</script>', $html );
-		self::assertStringContainsString( '&lt;script&gt;xss&lt;/script&gt;', $html );
+		self::assertStringNotContainsString( '&lt;script&gt;xss&lt;/script&gt;', $html );
+		self::assertStringContainsString( 'Stale', $html );
 		self::assertFalse( ( new \Jocky\MediaOffloader\Integration\JioDetector() )->detect()['active'] );
 	}
 
