@@ -7,7 +7,6 @@ if ( ! is_string( $tests_dir ) || ! is_file( $tests_dir . '/includes/functions.p
 	exit( 1 );
 }
 
-require_once dirname( __DIR__ ) . '/vendor/autoload.php';
 $polyfills_path = getenv( 'WP_TESTS_PHPUNIT_POLYFILLS_PATH' );
 if ( is_string( $polyfills_path ) && '' !== $polyfills_path && ! defined( 'WP_TESTS_PHPUNIT_POLYFILLS_PATH' ) ) {
 	define( 'WP_TESTS_PHPUNIT_POLYFILLS_PATH', $polyfills_path );
