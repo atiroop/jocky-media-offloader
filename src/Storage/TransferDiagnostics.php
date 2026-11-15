@@ -15,7 +15,11 @@ final class TransferDiagnostics {
 	 *
 	 * @param string $code Persisted safe diagnostic code.
 	 */
-	public function message( string $code ): string {
+	public function message( ?string $code ): string {
+		$code = trim( (string) $code );
+		if ( '' === $code ) {
+			return __( 'No diagnostic recorded.', 'jocky-media-offloader' );
+		}
 		if ( 1 === preg_match( '/\Ar2d_(head|put|multi|create|parts|part|complete|abort)_(perm|auth|checksum|timeout|skew|temporary|unsupported|rejected|service|network|api)_([0-9]{3})_(AccessDenied|Unauthorized|InvalidAccessKeyId|SignatureDoesNotMatch|ExpiredToken|ExpiredRequest|BadDigest|InvalidDigest|RequestTimeout|RequestTimeTooSkewed|SlowDown|TooManyRequests|NotImplemented|NotSupported|InvalidRequest|InvalidArgument|InvalidBucketName|InternalError|ServiceUnavailable|NoSuchBucket|NoSuchKey|NotFound|Unknown)\z/', $code, $matches ) ) {
 			$operations = array(
 				'head'     => 'head_object',
@@ -119,6 +123,33 @@ final class TransferDiagnostics {
 			'invalid_source'       => __( 'The local source file failed validation. Review the file path and manifest before retrying.', 'jocky-media-offloader' ),
 		);
 		return $legacy[ $code ] ?? __( 'The queue step failed. Review the job state and local source file before retrying.', 'jocky-media-offloader' );
+	}
+
+	/** Return the current job state and, when present, clearly historical diagnostics.
+	 *
+	 * @param string      $status    Stored queue status.
+	 * @param string|null $error_code Stored safe diagnostic code, if any.
+	 */
+	public function job_message( string $status, ?string $error_code ): string {
+		$state   = array(
+			'pending_optimization' => __( 'Waiting for explicit JIO completion confirmation.', 'jocky-media-offloader' ),
+			'pending'              => __( 'Queued / processing normally.', 'jocky-media-offloader' ),
+			'processing'           => __( 'Processing.', 'jocky-media-offloader' ),
+			'uploaded'             => __( 'Upload complete; verification is pending.', 'jocky-media-offloader' ),
+			'verified'             => __( 'Completed successfully.', 'jocky-media-offloader' ),
+			'failed'               => __( 'No diagnostic recorded.', 'jocky-media-offloader' ),
+		);
+		$current = $state[ $status ] ?? __( 'No error recorded.', 'jocky-media-offloader' );
+		$code    = trim( (string) $error_code );
+		if ( '' === $code ) {
+			return $current;
+		}
+		$diagnostic = $this->message( $code );
+		if ( 'failed' === $status ) {
+			return $diagnostic;
+		}
+		// translators: 1: current queue status; 2: sanitized diagnostic from an earlier attempt.
+		return sprintf( __( '%1$s Previous attempt: %2$s', 'jocky-media-offloader' ), $current, $diagnostic );
 	}
 
 	/** Resolve a compact persisted API operation alias to its display name.

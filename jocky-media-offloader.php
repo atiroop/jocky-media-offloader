@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Jocky Media Offloader
  * Description: Safely queue and verify WordPress media copies in Cloudflare R2 while retaining local files.
- * Version: 0.2.1
+ * Version: 0.2.2
  * Requires at least: 6.6
  * Requires PHP: 8.3
  * Author: Jocky
@@ -16,7 +16,7 @@ declare(strict_types=1);
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'JMO_VERSION', '0.2.1' );
+define( 'JMO_VERSION', '0.2.2' );
 define( 'JMO_FILE', __FILE__ );
 define( 'JMO_DIR', plugin_dir_path( __FILE__ ) );
 
