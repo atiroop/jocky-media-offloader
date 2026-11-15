@@ -23,6 +23,7 @@ SKIP_DB_CREATE=${6-false}
 
 TMPDIR=${TMPDIR-/tmp}
 TMPDIR=$(echo $TMPDIR | sed -e "s/\/$//")
+mkdir -p "$TMPDIR"
 WP_TESTS_DIR=${WP_TESTS_DIR-$TMPDIR/wordpress-tests-lib}
 WP_TESTS_FILE="$WP_TESTS_DIR"/includes/functions.php
 WP_CORE_DIR=${WP_CORE_DIR-$TMPDIR/wordpress}
