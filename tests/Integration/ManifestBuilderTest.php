@@ -34,6 +34,7 @@ final class ManifestBuilderTest extends WP_UnitTestCase {
 		$attachment_id = $this->attachment( 'report.pdf', 'application/pdf', '%PDF-original' );
 		$original      = get_attached_file( $attachment_id, true );
 		$directory     = dirname( $original );
+		$initial       = ( new ManifestBuilder() )->build( $attachment_id );
 		$this->write( $directory . DIRECTORY_SEPARATOR . 'report-thumb.pdf', '%PDF-thumb' );
 		$this->write( $directory . DIRECTORY_SEPARATOR . 'report-backup.pdf', '%PDF-backup' );
 		wp_update_attachment_metadata(
@@ -46,6 +47,7 @@ final class ManifestBuilderTest extends WP_UnitTestCase {
 		update_post_meta( $attachment_id, '_wp_attachment_backup_sizes', array( 'full-orig' => array( 'file' => 'report-backup.pdf' ) ) );
 		$manifest = ( new ManifestBuilder() )->build( $attachment_id );
 		$paths    = array_column( $manifest['files'], 'relative_path' );
+		self::assertNotSame( $initial['hash'], $manifest['hash'] );
 		self::assertCount( 3, $paths );
 		self::assertContains( ltrim( substr( wp_normalize_path( $original ), strlen( rtrim( wp_normalize_path( wp_upload_dir()['basedir'] ), '/' ) ) ), '/' ), $paths );
 		self::assertContains( 'report-thumb.pdf', array_map( 'basename', $paths ) );

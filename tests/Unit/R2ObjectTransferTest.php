@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Jocky\MediaOffloader\Tests\Unit;
 
+use Aws\CommandInterface;
+use Aws\Exception\AwsException;
 use Jocky\MediaOffloader\Storage\R2ObjectTransfer;
 use Jocky\MediaOffloader\Storage\TransferFailure;
 use PHPUnit\Framework\TestCase;
@@ -78,6 +80,46 @@ final class R2ObjectTransferTest extends TestCase {
 			strlen( $this->body ),
 		hash( 'sha256', $this->body )
 		);
+	}
+
+	public function test_concurrent_create_race_verifies_existing_object_without_overwriting(): void {
+		$command = $this->createMock( CommandInterface::class );
+		$client  = new class( $command, $GLOBALS['jmo_transfer_manifest'] ) {
+			public int $head_calls = 0;
+			public int $put_calls  = 0;
+			public function __construct( private CommandInterface $command, private array $manifest ) {}
+			public function headObject( array $args ): ?array {
+				++$this->head_calls;
+				if ( 1 === $this->head_calls ) {
+					return null;
+				}
+				return array( 'ContentLength' => $this->manifest['size_bytes'], 'Metadata' => array( 'jmo-sha256' => $this->manifest['sha256'] ) );
+			}
+			public function putObject( array $args ): void {
+				++$this->put_calls;
+				throw new AwsException( 'sensitive request detail', $this->command, array( 'code' => 'PreconditionFailed' ) );
+			}
+		};
+		$result = ( new R2ObjectTransfer() )->transfer( $client, $GLOBALS['jmo_transfer_manifest'], $this->path, 'test-bucket' );
+		self::assertTrue( $result['complete'] );
+		self::assertSame( 1, $client->put_calls );
+		self::assertSame( 2, $client->head_calls );
+	}
+
+	public function test_network_timeout_is_reported_with_a_safe_code(): void {
+		$command = $this->createMock( CommandInterface::class );
+		$client  = new class( $command ) {
+			public function __construct( private CommandInterface $command ) {}
+			public function headObject( array $args ): ?array { return null; }
+			public function putObject( array $args ): void { throw new AwsException( 'secret key and authorization header', $this->command ); }
+		};
+		try {
+			( new R2ObjectTransfer() )->transfer( $client, $GLOBALS['jmo_transfer_manifest'], $this->path, 'test-bucket' );
+			self::fail( 'The network failure should be surfaced.' );
+		} catch ( TransferFailure $failure ) {
+			self::assertSame( 'r2_network_failure', $failure->safe_code );
+			self::assertStringNotContainsString( 'authorization', $failure->getMessage() );
+		}
 	}
 
 	public function test_multipart_upload_resumes_from_server_parts_and_verifies_full_object(): void {

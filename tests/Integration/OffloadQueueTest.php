@@ -42,6 +42,23 @@ final class OffloadQueueTest extends WP_UnitTestCase {
 		self::assertSame( 'processing', $recovered['status'] );
 	}
 
+	public function test_failed_attempt_is_delayed_and_diagnostic_is_persisted(): void {
+		global $wpdb;
+		Plugin::activate();
+		$wpdb->query( 'DELETE FROM ' . QueueSchema::objects_table() );
+		$wpdb->query( 'DELETE FROM ' . QueueSchema::jobs_table() );
+		$jobs     = new JobRepository();
+		$job_id   = $jobs->enqueue( 79, $this->manifest() );
+		$token    = str_repeat( 'e', 64 );
+		$jobs->claim_next( $token );
+		self::assertTrue( $jobs->release( $job_id, $token, 'pending', 'upload', 'r2_network_failure', 60 ) );
+		$job = $jobs->get( $job_id );
+		self::assertSame( 'r2_network_failure', $job['error_code'] );
+		self::assertSame( 1, (int) $job['attempts'] );
+		self::assertGreaterThan( 0, (int) $wpdb->get_var( $wpdb->prepare( 'SELECT TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),available_at) FROM ' . QueueSchema::jobs_table() . ' WHERE id = %d', $job_id ) ) );
+		self::assertNull( $jobs->claim_next( str_repeat( 'f', 64 ) ) );
+	}
+
 	public function test_jio_confirmation_is_required_only_for_supported_images(): void {
 		$attachment_id = self::factory()->attachment->create( array( 'post_mime_type' => 'image/jpeg' ) );
 		$detector      = new JioDetector(
