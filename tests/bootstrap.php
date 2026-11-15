@@ -5,6 +5,15 @@ require_once dirname( __DIR__ ) . '/vendor/autoload.php';
 
 if ( ! function_exists( 'get_option' ) ) {
 	function get_option( string $option, $default = false ) {
-		return $option === 'jmo_settings' && isset( $GLOBALS['jmo_settings'] ) ? $GLOBALS['jmo_settings'] : $default;
+		if ( 'jmo_settings' === $option && isset( $GLOBALS['jmo_settings'] ) ) {
+			return $GLOBALS['jmo_settings'];
+		}
+		return $GLOBALS['jmo_options'][ $option ] ?? $default;
+	}
+}
+
+if ( ! function_exists( 'wp_normalize_path' ) ) {
+	function wp_normalize_path( string $path ): string {
+		return str_replace( '\\', '/', $path );
 	}
 }

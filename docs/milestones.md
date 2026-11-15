@@ -2,16 +2,16 @@
 
 ## 1. Foundation and R2 connectivity
 
-Complete: standalone plugin, settings, secure credential loading, read-only R2 diagnostics, optional JIO detection, tests, packaging, and CI.
+Complete: independent plugin, secure configuration, read-only R2 connection test, optional JIO detection, tests, package, and CI.
 
-## 2. Integration contract and manifest design
+## 2. Background offload engine
 
-Define a stable JIO completion contract and attachment manifest format. Continue to preserve local files and avoid URL delivery changes until remote state is verified.
+Implemented on `feature/milestone-2-offload-engine`: durable database queue, atomic leases and recovery, confined manifests, pending JIO readiness, bounded worker, create-only R2 uploads, resumable multipart, remote verification, admin controls, and Keep Local Files enforcement. Acceptance status depends on local and CI verification recorded in the pull request.
 
-## 3. Explicit offload operations
+## 3. JIO completion contract and delivery readiness
 
-Design opt-in, retryable background transfers, verification, multipart uploads, and restoration. Require operator-visible status and recovery paths.
+JIO 0.6.1-beta.1 does not currently expose an attachment-level completion event. Add a documented event or queryable terminal state before removing manual completion attestation. This milestone may also add explicit restoration tools and operator workflows.
 
 ## 4. Delivery integration
 
-Only after verified offload state, evaluate CDN delivery and compatibility with WordPress, themes, Elementor, and JIO. Keep restoration and rollback available.
+Evaluate CDN delivery only after verified object state, with WordPress, theme, Elementor, and JIO compatibility coverage. Provide rollback and restoration before changing any frontend URL behavior.

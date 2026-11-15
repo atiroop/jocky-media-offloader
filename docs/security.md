@@ -1,10 +1,11 @@
-# Security
+# Security decisions
 
-- Access keys and secrets are read from JMO_R2_* constants first and environment variables second. Secret options are not registered or stored.
-- The interface shows only readiness and credential source. Credentials are not exposed through a public endpoint.
-- R2 endpoint input is not accepted; it is derived from a validated Cloudflare account ID. CDN configuration accepts a hostname only.
-- All admin routes and pages require manage_options. Settings use the Settings API; the connection action checks a WordPress nonce.
-- Connection errors are mapped to generic statuses and messages. Raw SDK exception messages, response bodies, request headers, and credentials are not persisted.
-- The only storage operation is read-only HeadBucket, triggered by an administrator and bounded by connection/request timeouts.
-- Keep Local Files is permanently enabled. No filesystem or media-delivery integration is registered.
-- Deactivation and uninstall preserve JMO settings, local media, remote objects, and shared media metadata.
+- R2 access keys and secrets come from wp-config.php constants or process environment variables. The plugin does not save secrets in WordPress options.
+- The endpoint is derived from the validated Cloudflare account ID. Admin screens require `manage_options`; state-changing forms use WordPress nonces.
+- R2 exceptions are converted to fixed diagnostic codes. Credentials, authorization headers, request bodies, and raw SDK errors are never persisted.
+- Automatic offloading is OFF by default. The plugin does not enqueue the existing Media Library for bulk migration.
+- Uploads are limited to attachment metadata and JIO ownership paths that resolve to regular files under the uploads root. Symlink escapes and traversal are rejected.
+- Object writes are create-only. Existing objects are accepted only after remote size and SHA-256 metadata verification. No R2 objects are automatically deleted.
+- Local files, attachment paths, GUIDs, original URLs, and JIO outputs are read-only. No frontend URL rewriting is registered.
+- Worker leases, retry counts, execution time, batch size, request timeouts, file count, manifest size, multipart thresholds, and multipart part size are bounded.
+- CI uses R2 fakes and does not use production credentials. No production media is uploaded during development.

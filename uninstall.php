@@ -7,4 +7,4 @@
 
 defined('WP_UNINSTALL_PLUGIN') || exit;
 
-// No destructive cleanup is registered in Milestone 1.
+// Queue tables, settings, local media, and remote objects are preserved on uninstall.
