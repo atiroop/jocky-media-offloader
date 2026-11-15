@@ -8,6 +8,10 @@ if ( ! is_string( $tests_dir ) || ! is_file( $tests_dir . '/includes/functions.p
 }
 
 require_once dirname( __DIR__ ) . '/vendor/autoload.php';
+$polyfills_path = getenv( 'WP_TESTS_PHPUNIT_POLYFILLS_PATH' );
+if ( is_string( $polyfills_path ) && '' !== $polyfills_path && ! defined( 'WP_TESTS_PHPUNIT_POLYFILLS_PATH' ) ) {
+	define( 'WP_TESTS_PHPUNIT_POLYFILLS_PATH', $polyfills_path );
+}
 require_once $tests_dir . '/includes/functions.php';
 $plugin_file = getenv( 'JMO_PLUGIN_FILE' );
 if ( ! is_string( $plugin_file ) || '' === $plugin_file ) {
