@@ -6,19 +6,14 @@ namespace Jocky\MediaOffloader\Tests\Integration;
 use Jocky\MediaOffloader\Admin\DiagnosticsPage;
 use Jocky\MediaOffloader\Admin\SettingsPage;
 use Jocky\MediaOffloader\Config\CredentialsProvider;
+use Jocky\MediaOffloader\Plugin;
 use Jocky\MediaOffloader\Storage\StorageClientFactory;
 use WP_UnitTestCase;
 
 final class PluginSmokeTest extends WP_UnitTestCase {
 	public function test_activation_and_deactivation_preserve_options(): void {
 		delete_option( 'jmo_settings' );
-		$plugin = plugin_basename( JMO_FILE );
-		if ( is_plugin_active( $plugin ) ) {
-			deactivate_plugins( $plugin );
-		}
-		$activation_error = activate_plugin( $plugin );
-		self::assertNull( $activation_error );
-		self::assertTrue( is_plugin_active( $plugin ) );
+		Plugin::activate();
 		self::assertSame( 'jocky-cdn-storage', get_option( 'jmo_settings' )['bucket'] );
 		$custom = array(
 			'account_id' => str_repeat( 'a', 32 ),
@@ -26,7 +21,7 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 			'cdn_domain' => 'cdn.example.com',
 		);
 		update_option( 'jmo_settings', $custom );
-		deactivate_plugins( $plugin );
+		Plugin::deactivate();
 		self::assertSame( $custom, get_option( 'jmo_settings' ) );
 	}
 
