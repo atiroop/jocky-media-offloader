@@ -66,28 +66,34 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 
 	public function test_jio_metadata_is_detected_when_inactive_and_active(): void {
 		$plugin_file = 'jocky-image-optimizer/jocky-image-optimizer.php';
-		$filter      = static function ( array $plugins ) use ( $plugin_file ): array {
-			$plugins[ $plugin_file ] = array(
+		$metadata = array(
+			$plugin_file => array(
 				'Name'       => 'Jocky Image Optimizer',
 				'TextDomain' => 'jocky-image-optimizer',
 				'Version'    => '0.6.1-beta.1',
-			);
-			return $plugins;
-		};
-		add_filter( 'all_plugins', $filter );
-		wp_clean_plugins_cache( true );
-		$active_plugins = get_option( 'active_plugins', array() );
-		update_option( 'active_plugins', array_values( array_diff( $active_plugins, array( $plugin_file ) ) ) );
-		$detector = new \Jocky\MediaOffloader\Integration\JioDetector();
-		$inactive = $detector->detect();
+			),
+		);
+		$inactive_detector = new \Jocky\MediaOffloader\Integration\JioDetector(
+			static function () use ( $metadata ): array {
+				return $metadata;
+			},
+			static function (): bool {
+				return false;
+			}
+		);
+		$inactive = $inactive_detector->detect();
 		self::assertFalse( $inactive['active'] );
 		self::assertSame( '0.6.1-beta.1', $inactive['version'] );
 
-		update_option( 'active_plugins', array_merge( $active_plugins, array( $plugin_file ) ) );
-		self::assertTrue( $detector->detect()['active'] );
-		update_option( 'active_plugins', $active_plugins );
-		remove_filter( 'all_plugins', $filter );
-		wp_clean_plugins_cache( true );
+		$active_detector = new \Jocky\MediaOffloader\Integration\JioDetector(
+			static function () use ( $metadata ): array {
+				return $metadata;
+			},
+			static function (): bool {
+				return true;
+			}
+		);
+		self::assertTrue( $active_detector->detect()['active'] );
 	}
 
 	public function test_plugin_does_not_register_media_mutation_or_url_rewrite_hooks(): void {

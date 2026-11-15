@@ -9,8 +9,20 @@ declare(strict_types=1);
 
 namespace Jocky\MediaOffloader\Integration;
 
+use Closure;
+
 /** Reads public plugin metadata to detect optional JIO installation. */
 final class JioDetector {
+	/** Create a detector with optional metadata seams for tests.
+	 *
+	 * @param Closure():array<string,array<string,string>>|null $plugin_provider Test metadata provider.
+	 * @param Closure(string):bool|null                         $active_checker  Test activation checker.
+	 */
+	public function __construct(
+		private readonly ?Closure $plugin_provider = null,
+		private readonly ?Closure $active_checker = null
+	) {}
+
 	/**
 	 * Detect JIO from public plugin metadata without requiring JIO classes.
 	 *
@@ -19,11 +31,11 @@ final class JioDetector {
 	public function detect(): array {
 		$active  = defined( 'JIO_VERSION' );
 		$version = $active ? (string) constant( 'JIO_VERSION' ) : '';
-		if ( function_exists( 'get_plugins' ) && function_exists( 'is_plugin_active' ) ) {
-			$plugins = get_plugins();
+		if ( null !== $this->plugin_provider || function_exists( 'get_plugins' ) ) {
+			$plugins = null !== $this->plugin_provider ? ( $this->plugin_provider )() : get_plugins();
 			foreach ( $plugins as $file => $metadata ) {
 				if ( 'Jocky Image Optimizer' === ( $metadata['Name'] ?? '' ) || 'jocky-image-optimizer' === ( $metadata['TextDomain'] ?? '' ) ) {
-					$active  = is_plugin_active( $file );
+					$active  = null !== $this->active_checker ? ( $this->active_checker )( $file ) : ( function_exists( 'is_plugin_active' ) && is_plugin_active( $file ) );
 					$version = $active && defined( 'JIO_VERSION' ) ? (string) constant( 'JIO_VERSION' ) : (string) ( $metadata['Version'] ?? '' );
 					return array(
 						'active'  => $active,
