@@ -46,6 +46,8 @@ final class ConfigurationTest extends TestCase {
 			)
 		);
 		self::assertArrayHasKey( 'cdn_domain', $config->validate( array( 'cdn_domain' => 'https://example.com/path' ) ) );
+		self::assertArrayHasKey( 'account_id', $config->validate( array( 'account_id' => array( 'invalid' ) ) ) );
+		self::assertSame( '', $config->sanitize( array( 'account_id' => array( 'invalid' ) ) )['account_id'] );
 		self::assertSame( '', $config->account_id( 'https://169.254.169.254' ) );
 	}
 

@@ -26,14 +26,14 @@ final class Configuration {
 	public function all(): array {
 		$stored     = function_exists( 'get_option' ) ? get_option( self::OPTION, array() ) : array();
 		$stored     = is_array( $stored ) ? $stored : array();
-		$account_id = defined( 'JMO_R2_ACCOUNT_ID' ) ? (string) constant( 'JMO_R2_ACCOUNT_ID' ) : (string) getenv( 'JMO_R2_ACCOUNT_ID' );
+		$account_id = $this->string_value( defined( 'JMO_R2_ACCOUNT_ID' ) ? constant( 'JMO_R2_ACCOUNT_ID' ) : getenv( 'JMO_R2_ACCOUNT_ID' ) );
 		if ( '' === $account_id ) {
-			$account_id = (string) ( $stored['account_id'] ?? '' );
+			$account_id = $this->string_value( $stored['account_id'] ?? '' );
 		}
 		return array(
 			'account_id' => $this->account_id( $account_id ),
-			'bucket'     => $this->bucket( (string) ( $stored['bucket'] ?? self::DEFAULT_BUCKET ) ),
-			'cdn_domain' => $this->cdn_domain( (string) ( $stored['cdn_domain'] ?? '' ) ),
+			'bucket'     => $this->bucket( $this->string_value( $stored['bucket'] ?? self::DEFAULT_BUCKET ) ),
+			'cdn_domain' => $this->cdn_domain( $this->string_value( $stored['cdn_domain'] ?? '' ) ),
 		);
 	}
 
@@ -44,10 +44,15 @@ final class Configuration {
 	 * @return array<string,string> Validation messages by key.
 	 */
 	public function validate( array $input ): array {
-		$errors  = array();
-		$account = trim( (string) ( $input['account_id'] ?? '' ) );
-		$bucket  = trim( (string) ( $input['bucket'] ?? self::DEFAULT_BUCKET ) );
-		$cdn     = trim( (string) ( $input['cdn_domain'] ?? '' ) );
+		$errors = array();
+		foreach ( array( 'account_id', 'bucket', 'cdn_domain' ) as $key ) {
+			if ( array_key_exists( $key, $input ) && ! is_string( $input[ $key ] ) ) {
+				$errors[ $key ] = 'Enter a text value.';
+			}
+		}
+		$account = $this->string_value( $input['account_id'] ?? '' );
+		$bucket  = $this->string_value( $input['bucket'] ?? self::DEFAULT_BUCKET );
+		$cdn     = $this->string_value( $input['cdn_domain'] ?? '' );
 		if ( '' !== $account && '' === $this->account_id( $account ) ) {
 			$errors['account_id'] = 'Enter a valid Cloudflare account ID (32 hexadecimal characters).';
 		}
@@ -68,10 +73,20 @@ final class Configuration {
 	 */
 	public function sanitize( array $input ): array {
 		return array(
-			'account_id' => $this->account_id( trim( (string) ( $input['account_id'] ?? '' ) ) ),
-			'bucket'     => $this->bucket( trim( (string) ( $input['bucket'] ?? self::DEFAULT_BUCKET ) ) ),
-			'cdn_domain' => $this->cdn_domain( trim( (string) ( $input['cdn_domain'] ?? '' ) ) ),
+			'account_id' => $this->account_id( $this->string_value( $input['account_id'] ?? '' ) ),
+			'bucket'     => $this->bucket( $this->string_value( $input['bucket'] ?? self::DEFAULT_BUCKET ) ),
+			'cdn_domain' => $this->cdn_domain( $this->string_value( $input['cdn_domain'] ?? '' ) ),
 		);
+	}
+
+	/** Normalize a scalar admin value without converting arrays to strings.
+	 *
+	 * @param mixed  $value Submitted or stored value.
+	 * @param string $fallback Value used when the input is not a string.
+	 * @return string Normalized text.
+	 */
+	private function string_value( $value, string $fallback = '' ): string {
+		return is_string( $value ) ? trim( $value ) : $fallback;
 	}
 
 	/**

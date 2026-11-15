@@ -23,8 +23,8 @@ final class CredentialsProvider {
 	public function get(): ?array {
 		$sources = array(
 			'wp-config.php' => array(
-				defined( 'JMO_R2_ACCESS_KEY_ID' ) ? (string) constant( 'JMO_R2_ACCESS_KEY_ID' ) : '',
-				defined( 'JMO_R2_SECRET_ACCESS_KEY' ) ? (string) constant( 'JMO_R2_SECRET_ACCESS_KEY' ) : '',
+				defined( 'JMO_R2_ACCESS_KEY_ID' ) && is_string( constant( 'JMO_R2_ACCESS_KEY_ID' ) ) ? constant( 'JMO_R2_ACCESS_KEY_ID' ) : '',
+				defined( 'JMO_R2_SECRET_ACCESS_KEY' ) && is_string( constant( 'JMO_R2_SECRET_ACCESS_KEY' ) ) ? constant( 'JMO_R2_SECRET_ACCESS_KEY' ) : '',
 			),
 			'environment'   => array( (string) getenv( 'JMO_R2_ACCESS_KEY_ID' ), (string) getenv( 'JMO_R2_SECRET_ACCESS_KEY' ) ),
 		);
