@@ -75,6 +75,7 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 			return $plugins;
 		};
 		add_filter( 'all_plugins', $filter );
+		wp_clean_plugins_cache( true );
 		$active_plugins = get_option( 'active_plugins', array() );
 		update_option( 'active_plugins', array_values( array_diff( $active_plugins, array( $plugin_file ) ) ) );
 		$detector = new \Jocky\MediaOffloader\Integration\JioDetector();
@@ -86,6 +87,7 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 		self::assertTrue( $detector->detect()['active'] );
 		update_option( 'active_plugins', $active_plugins );
 		remove_filter( 'all_plugins', $filter );
+		wp_clean_plugins_cache( true );
 	}
 
 	public function test_plugin_does_not_register_media_mutation_or_url_rewrite_hooks(): void {
