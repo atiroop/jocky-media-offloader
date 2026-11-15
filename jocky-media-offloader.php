@@ -21,7 +21,7 @@ define( 'JMO_FILE', __FILE__ );
 define( 'JMO_DIR', plugin_dir_path( __FILE__ ) );
 
 $jmo_autoload = JMO_DIR . 'vendor/autoload.php';
-if ( ! is_readable( $jmo_autoload ) ) {
+if ( ! class_exists( Jocky\MediaOffloader\Plugin::class ) && ! is_readable( $jmo_autoload ) ) {
 	add_action(
 		'admin_notices',
 		static function (): void {
@@ -33,7 +33,9 @@ if ( ! is_readable( $jmo_autoload ) ) {
 	return;
 }
 
-require_once $jmo_autoload;
+if ( ! class_exists( Jocky\MediaOffloader\Plugin::class ) ) {
+	require_once $jmo_autoload;
+}
 
 register_activation_hook( __FILE__, array( Jocky\MediaOffloader\Plugin::class, 'activate' ) );
 register_deactivation_hook( __FILE__, array( Jocky\MediaOffloader\Plugin::class, 'deactivate' ) );
