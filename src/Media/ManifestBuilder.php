@@ -63,12 +63,12 @@ final class ManifestBuilder {
 		}
 		$jio_hashes = array();
 		$jio_mime   = (string) get_post_mime_type( $attachment_id );
-		$jio_meta   = in_array( $jio_mime, array( 'image/jpeg', 'image/png' ), true ) ? get_post_meta( $attachment_id ) : array();
-		foreach ( $jio_meta as $meta_key => $meta_values ) {
-			if ( ! is_string( $meta_key ) || ! str_starts_with( $meta_key, '_jio_derivative_' ) || ! is_array( $meta_values ) ) {
+		$jio_keys   = in_array( $jio_mime, array( 'image/jpeg', 'image/png' ), true ) ? get_post_custom_keys( $attachment_id ) : array();
+		foreach ( is_array( $jio_keys ) ? $jio_keys : array() as $meta_key ) {
+			if ( ! is_string( $meta_key ) || ! str_starts_with( $meta_key, '_jio_derivative_' ) ) {
 				continue;
 			}
-			$record = $meta_values[0] ?? null;
+			$record = get_post_meta( $attachment_id, $meta_key, true );
 			if ( ! is_array( $record ) || ! isset( $record['derivative_relative_path'], $record['derivative_sha256'], $record['output_format'] ) || ! in_array( $record['output_format'], array( 'image/webp', 'image/avif' ), true ) || 1 !== preg_match( '/\A[a-f0-9]{64}\z/', (string) $record['derivative_sha256'] ) ) {
 				continue;
 			}

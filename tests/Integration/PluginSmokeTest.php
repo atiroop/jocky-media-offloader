@@ -100,6 +100,6 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 		self::assertFalse( has_filter( 'wp_get_attachment_url' ) );
 		self::assertFalse( has_filter( 'wp_calculate_image_srcset' ) );
 		self::assertFalse( has_action( 'wp_handle_upload' ) );
-		self::assertFalse( has_action( 'wp_generate_attachment_metadata' ) );
+		self::assertNotFalse( has_filter( 'wp_generate_attachment_metadata' ) );
 	}
 }
