@@ -16,6 +16,7 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 	public function test_activation_and_deactivation_preserve_options(): void {
 		delete_option( 'jmo_settings' );
 		delete_option( 'jmo_cdn_delivery' );
+		delete_option( 'jmo_auto_offload' );
 		Plugin::activate();
 		self::assertSame( 'jocky-cdn-storage', get_option( 'jmo_settings' )['bucket'] );
 		self::assertFalse( (bool) get_option( 'jmo_cdn_delivery', false ) );
