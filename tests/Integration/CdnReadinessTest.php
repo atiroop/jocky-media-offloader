@@ -12,7 +12,7 @@ use WP_UnitTestCase;
 final class CdnReadinessTest extends WP_UnitTestCase {
 	private array $saved_options = array();
 
-	protected function set_up(): void {
+	public function set_up(): void {
 		parent::set_up();
 		$this->saved_options['jmo_settings'] = get_option( 'jmo_settings', null );
 		$this->saved_options[ CdnReadiness::OPTION ] = get_option( CdnReadiness::OPTION, null );
@@ -27,7 +27,7 @@ final class CdnReadinessTest extends WP_UnitTestCase {
 		delete_option( CdnReadiness::OPTION );
 	}
 
-	protected function tear_down(): void {
+	public function tear_down(): void {
 		foreach ( $this->saved_options as $option => $value ) {
 			if ( null === $value ) {
 				delete_option( $option );

@@ -17,7 +17,7 @@ final class ManifestBuilderTest extends WP_UnitTestCase {
 	private array $created_dirs    = array();
 	private array $saved_options   = array();
 
-	protected function set_up(): void {
+	public function set_up(): void {
 		parent::set_up();
 		foreach ( array( 'jmo_settings', 'jmo_cdn_delivery', 'jmo_cdn_readiness' ) as $option ) {
 			$this->saved_options[ $option ] = get_option( $option, null );
