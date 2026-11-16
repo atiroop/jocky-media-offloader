@@ -9,6 +9,8 @@ declare(strict_types=1);
 
 namespace Jocky\MediaOffloader\Media;
 
+use Jocky\MediaOffloader\Integration\JioReadiness;
+
 // phpcs:disable WordPress.WP.AlternativeFunctions.file_system_read_finfo_open, WordPress.WP.AlternativeFunctions.file_system_read_finfo_file -- finfo is required to detect the MIME type of an existing file without altering WordPress's upload allowlist.
 
 /** Resolves original, generated and backup media files without changing them. */
@@ -16,17 +18,23 @@ final class ManifestBuilder {
 	public const VERSION   = 1;
 	public const MAX_FILES = 250;
 
+	/** Create the manifest builder.
+	 *
+	 * @param JioReadiness $jio_readiness Optional JIO contract reader.
+	 */
+	public function __construct( private readonly JioReadiness $jio_readiness = new JioReadiness() ) {}
+
 	/** Build a stable manifest for one existing attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.
-	 * @return array{version:int,attachment_id:int,files:array<int,array{relative_path:string,size:int,mime:string,sha256:string,object_key:string}>,hash:string}|null Manifest, or null when no safe files exist.
+	 * @return array{version:int,attachment_id:int,attachment_fingerprint:string,jio_contract_version:int|null,jio_generation:string,jio_revision:string,jio_outcome:string,files:array<int,array{relative_path:string,size:int,mime:string,sha256:string,object_key:string}>,hash:string}|null Manifest, or null when no safe files exist.
 	 */
 	public function build( int $attachment_id ): ?array {
 		if ( $attachment_id < 1 || 'attachment' !== get_post_type( $attachment_id ) ) {
 			return null;
 		}
-		$jio_state = ( new \Jocky\MediaOffloader\Integration\JioReadiness() )->state( $attachment_id );
-		if ( is_array( $jio_state ) && ! in_array( (string) ( $jio_state['outcome'] ?? '' ), array( 'completed', 'skipped' ), true ) ) {
+		$jio_state = $this->jio_readiness->state( $attachment_id );
+		if ( ( $this->jio_readiness->has_compatible_contract( $attachment_id ) && null === $jio_state ) || ( null !== $jio_state && ! JioReadiness::is_terminal_eligible( $jio_state ) ) ) {
 			return null;
 		}
 		$uploads  = wp_upload_dir();
@@ -132,10 +140,11 @@ final class ManifestBuilder {
 		}
 		$attachment_fingerprint = hash( 'sha256', (string) wp_json_encode( array( get_post_meta( $attachment_id, '_wp_attached_file', true ), $metadata, get_post_meta( $attachment_id, '_wp_attachment_backup_sizes', true ) ) ) );
 		$canonical_data         = array_map( static fn ( array $file ): array => array( $file['relative_path'], $file['size'], $file['mime'], $file['sha256'], $file['file_identity'] ), $files );
+		$jio_contract_version   = is_array( $jio_state ) ? (int) $jio_state['contract_version'] : null;
 		$jio_generation         = is_array( $jio_state ) ? (string) $jio_state['generation'] : '';
 		$jio_revision           = is_array( $jio_state ) ? (string) $jio_state['revision'] : '';
 		$jio_outcome            = is_array( $jio_state ) ? (string) $jio_state['outcome'] : '';
-		$hash                   = hash( 'sha256', (string) wp_json_encode( array( self::VERSION, $attachment_id, $attachment_fingerprint, $canonical_data, $jio_generation, $jio_revision, $jio_outcome ) ) );
+		$hash                   = hash( 'sha256', (string) wp_json_encode( array( self::VERSION, $attachment_id, $attachment_fingerprint, $canonical_data, $jio_contract_version, $jio_generation, $jio_revision, $jio_outcome ) ) );
 		foreach ( $files as $index => &$file ) {
 			$file['object_key'] = 'jmo/v1/' . $site_key . '/' . $attachment_id . '/' . $hash . '/' . sprintf( '%03d', $index ) . '-' . $file['sha256'] . '-' . rawurlencode( basename( $file['relative_path'] ) );
 			if ( strlen( $file['object_key'] ) > 1024 ) {
@@ -143,10 +152,14 @@ final class ManifestBuilder {
 			}
 		}
 		unset( $file );
+		if ( ! $this->jio_readiness->snapshot_still_current( $attachment_id, $jio_state ) ) {
+			return null;
+		}
 		return array(
 			'version'                => self::VERSION,
 			'attachment_id'          => $attachment_id,
 			'attachment_fingerprint' => $attachment_fingerprint,
+			'jio_contract_version'   => $jio_contract_version,
 			'jio_generation'         => $jio_generation,
 			'jio_revision'           => $jio_revision,
 			'jio_outcome'            => $jio_outcome,

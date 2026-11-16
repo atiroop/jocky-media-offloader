@@ -20,8 +20,13 @@ final class MediaDiscovery {
 	 *
 	 * @param JobRepository $jobs   Persistent job repository.
 	 * @param QueueWorker   $worker Scheduled transfer worker.
+	 * @param JioReadiness  $jio_readiness JIO public completion-contract reader.
 	 */
-	public function __construct( private readonly JobRepository $jobs, private readonly QueueWorker $worker ) {}
+	public function __construct(
+		private readonly JobRepository $jobs,
+		private readonly QueueWorker $worker,
+		private readonly JioReadiness $jio_readiness = new JioReadiness()
+	) {}
 
 	/** Register deferred discovery and its cron callback. */
 	public function register(): void {
@@ -54,14 +59,13 @@ final class MediaDiscovery {
 		if ( ! get_option( 'jmo_auto_offload', false ) || 'attachment' !== get_post_type( $attachment_id ) ) {
 			return;
 		}
-		$jio_readiness = new JioReadiness();
-		$jio_before    = $jio_readiness->state( $attachment_id );
-		if ( $jio_readiness->requires_confirmation( $attachment_id ) ) {
+		$jio_before = $this->jio_readiness->state( $attachment_id );
+		if ( $this->jio_readiness->requires_confirmation( $attachment_id ) ) {
 			$this->jobs->enqueue( $attachment_id, null, true );
 			return;
 		}
-		$manifest = ( new ManifestBuilder() )->build( $attachment_id );
-		if ( null !== $manifest && $jio_readiness->snapshot_still_current( $attachment_id, $jio_before ) ) {
+		$manifest = ( new ManifestBuilder( $this->jio_readiness ) )->build( $attachment_id );
+		if ( null !== $manifest && $this->jio_readiness->snapshot_still_current( $attachment_id, $jio_before ) ) {
 			$pending_id = $this->jobs->pending_optimization_job_id( $attachment_id );
 			if ( $pending_id > 0 ) {
 				$this->jobs->confirm_optimization( $pending_id, $manifest );
@@ -77,12 +81,16 @@ final class MediaDiscovery {
 	 * @param array $state Versioned JIO terminal result.
 	 */
 	public function jio_terminal( array $state ): void {
-		if ( 'completed' !== (string) ( $state['outcome'] ?? '' ) || empty( $state['terminal'] ) || ! get_option( 'jmo_auto_offload', false ) ) {
+		if ( ! get_option( 'jmo_auto_offload', false ) || ! JioReadiness::is_terminal_eligible( $state ) ) {
 			return;
 		}
 		$attachment_id = absint( $state['attachment_id'] ?? 0 );
-		if ( $attachment_id > 0 ) {
-			$this->discover( $attachment_id );
+		if ( $attachment_id < 1
+			|| ! $this->jio_readiness->has_compatible_contract( $attachment_id )
+			|| ! $this->jio_readiness->snapshot_still_current( $attachment_id, $state )
+		) {
+			return;
 		}
+		$this->discover( $attachment_id );
 	}
 }
