@@ -102,3 +102,13 @@ jobs:
           zip -qr "$GITHUB_WORKSPACE/build/jocky-media-offloader-$version.zip" jocky-media-offloader
           test "$(unzip -Z1 "$GITHUB_WORKSPACE/build/jocky-media-offloader-$version.zip" | head -n1)" = 'jocky-media-offloader/'
           unzip -t "$GITHUB_WORKSPACE/build/jocky-media-offloader-$version.zip"
+          sha256sum "$GITHUB_WORKSPACE/build/jocky-media-offloader-$version.zip" > "$GITHUB_WORKSPACE/build/jocky-media-offloader-$version.zip.sha256"
+      - name: Upload validated installable ZIP and checksum
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: jocky-media-offloader-0.3.1
+          path: |
+            build/jocky-media-offloader-0.3.1.zip
+            build/jocky-media-offloader-0.3.1.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
