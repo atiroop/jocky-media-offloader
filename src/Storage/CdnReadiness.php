@@ -165,7 +165,7 @@ final class CdnReadiness {
 			$jio = ( new JioDetector() )->detect();
 			if ( $jio['active'] && version_compare( $jio['version'], '0.6.2', '>=' ) && in_array( (string) get_post_mime_type( $attachment_id ), array( 'image/jpeg', 'image/png' ), true ) ) {
 				$state = ( new JioReadiness() )->state( $attachment_id );
-				if ( ! is_array( $state ) || ! in_array( (string) $state['outcome'], array( 'completed', 'skipped' ), true ) || ! isset( $manifest['jio_generation'], $manifest['jio_revision'], $manifest['jio_outcome'] ) || ! hash_equals( (string) $manifest['jio_generation'], (string) $state['generation'] ) || ! hash_equals( (string) $manifest['jio_revision'], (string) $state['revision'] ) || ! hash_equals( (string) $manifest['jio_outcome'], (string) $state['outcome'] ) ) {
+				if ( ! is_array( $state ) || ! JioReadiness::manifest_matches_state( $manifest, $state ) ) {
 					continue;
 				}
 			}

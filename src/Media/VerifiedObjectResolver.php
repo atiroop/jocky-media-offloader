@@ -424,7 +424,7 @@ final class VerifiedObjectResolver {
 			$this->jio_state_memo[ $attachment_id ] = ( new JioReadiness() )->state( $attachment_id );
 		}
 		$state = $this->jio_state_memo[ $attachment_id ];
-		return is_array( $state ) && in_array( (string) $state['outcome'], array( 'completed', 'skipped' ), true ) && isset( $manifest['jio_generation'], $manifest['jio_revision'], $manifest['jio_outcome'] ) && hash_equals( (string) $manifest['jio_generation'], (string) $state['generation'] ) && hash_equals( (string) $manifest['jio_revision'], (string) $state['revision'] ) && hash_equals( (string) $manifest['jio_outcome'], (string) $state['outcome'] );
+		return is_array( $state ) && JioReadiness::manifest_matches_state( $manifest, $state );
 	}
 
 	/** Build a URL only from the validated configured hostname and persisted key.

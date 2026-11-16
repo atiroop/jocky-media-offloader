@@ -21,6 +21,7 @@ final class JioReadinessTest extends WP_UnitTestCase {
 	private ?array $contract_state = null;
 	private int $contract_state_reads = 0;
 	private bool $change_state_on_second_read = false;
+	private bool $change_contract_version_on_second_read = false;
 	private array $saved_options = array();
 
 	public function set_up(): void {
@@ -153,6 +154,61 @@ final class JioReadinessTest extends WP_UnitTestCase {
 		self::assertFalse( $readiness->snapshot_still_current( $this->attachment_id, $before ), 'an outcome transition is rejected even if other identifiers are unchanged' );
 	}
 
+	public function test_completed_and_skipped_manifests_persist_contract_version_in_hash_identity(): void {
+		$readiness = $this->readiness();
+		$builder   = new ManifestBuilder( $readiness );
+		$completed = $builder->build( $this->attachment_id );
+		self::assertIsArray( $completed );
+		self::assertSame( 1, $completed['jio_contract_version'] );
+
+		$this->contract_state = $this->state_fixture( 'skipped', array( 'full|image/webp' ), array() );
+		$skipped              = $builder->build( $this->attachment_id );
+		self::assertIsArray( $skipped );
+		self::assertSame( 1, $skipped['jio_contract_version'] );
+		self::assertSame( 'skipped', $skipped['jio_outcome'] );
+
+		$this->contract_state = $this->state_fixture( 'completed', array( 'full|image/webp' ), array( 'full|image/webp' ), true, 2 );
+		$version_two          = $builder->build( $this->attachment_id );
+		self::assertIsArray( $version_two );
+		self::assertSame( 2, $version_two['jio_contract_version'] );
+		self::assertNotSame( $completed['hash'], $version_two['hash'], 'contract version participates in canonical manifest identity' );
+	}
+
+	public function test_manifest_contract_matching_rejects_mismatches_and_legacy_versionless_manifests(): void {
+		$state = $this->state_fixture( 'completed' );
+		$manifest = array(
+			'jio_contract_version' => 1,
+			'jio_generation'       => $state['generation'],
+			'jio_revision'         => $state['revision'],
+			'jio_outcome'          => $state['outcome'],
+		);
+		self::assertTrue( JioReadiness::manifest_matches_state( $manifest, $state ) );
+
+		$skipped_state                = $this->state_fixture( 'skipped', array( 'full|image/webp' ), array() );
+		$manifest['jio_outcome']      = 'skipped';
+		self::assertTrue( JioReadiness::manifest_matches_state( $manifest, $skipped_state ) );
+
+		$manifest['jio_contract_version'] = 2;
+		self::assertFalse( JioReadiness::manifest_matches_state( $manifest, $skipped_state ), 'contract version mismatch is rejected' );
+		unset( $manifest['jio_contract_version'] );
+		self::assertFalse( JioReadiness::manifest_matches_state( $manifest, $skipped_state ), 'legacy manifest without a version is rejected' );
+		$manifest['jio_contract_version'] = 1;
+
+		foreach ( array( 'jio_generation', 'jio_revision', 'jio_outcome' ) as $field ) {
+			$stale = $manifest;
+			$stale[ $field ] = 'jio_outcome' === $field ? 'completed' : str_repeat( 'c', 64 );
+			self::assertFalse( JioReadiness::manifest_matches_state( $stale, $skipped_state ), $field . ' mismatch is rejected' );
+		}
+	}
+
+	public function test_contract_version_change_during_manifest_build_rejects_the_snapshot(): void {
+		$readiness = $this->readiness();
+		$this->contract_state_reads = 0;
+		$this->change_contract_version_on_second_read = true;
+		self::assertNull( ( new ManifestBuilder( $readiness ) )->build( $this->attachment_id ) );
+		self::assertSame( 2, $this->contract_state['contract_version'] );
+	}
+
 	public function test_missing_or_incompatible_jio_keeps_the_manual_fallback_and_optional_behavior(): void {
 		$missing = $this->readiness( false, '0.0.0' );
 		self::assertFalse( $missing->requires_confirmation( $this->attachment_id ) );
@@ -252,14 +308,17 @@ final class JioReadinessTest extends WP_UnitTestCase {
 			if ( $this->change_state_on_second_read && 2 === $this->contract_state_reads ) {
 				$this->contract_state = $this->state_fixture( 'pending', array( 'full|image/webp' ), array(), false );
 			}
+			if ( $this->change_contract_version_on_second_read && 2 === $this->contract_state_reads ) {
+				$this->contract_state['contract_version'] = 2;
+			}
 			return $attachment_id === $this->attachment_id ? $this->contract_state : null;
 		} );
 	}
 
 	/** Build a v1 public-contract fixture with valid hashes and status lists. */
-	private function state_fixture( string $outcome, array $expected = array( 'full|image/webp' ), array $completed = array( 'full|image/webp' ), bool $terminal = true ): array {
+	private function state_fixture( string $outcome, array $expected = array( 'full|image/webp' ), array $completed = array( 'full|image/webp' ), bool $terminal = true, int $contract_version = 1 ): array {
 		return array(
-			'contract_version' => 1,
+			'contract_version' => $contract_version,
 			'attachment_id'    => $this->attachment_id,
 			'generation'       => str_repeat( 'a', 64 ),
 			'expected'         => $expected,

@@ -126,6 +126,29 @@ final class JioReadiness {
 		return in_array( (string) $state['outcome'], array( 'completed', 'skipped' ), true ) && true === $state['terminal'];
 	}
 
+	/** Whether a manifest contains the exact validated JIO snapshot it claims to represent.
+	 *
+	 * Legacy manifests without a contract version remain invalid for compatible JIO images.
+	 *
+	 * @param array $manifest Persisted or candidate manifest.
+	 * @param array $state    Current validated JIO contract state.
+	 * @return bool Whether contract version and snapshot identity match.
+	 */
+	public static function manifest_matches_state( array $manifest, array $state ): bool {
+		if ( ! isset( $state['attachment_id'] ) || ! is_numeric( $state['attachment_id'] ) || ! self::is_terminal_eligible( $state ) ) {
+			return false;
+		}
+		return isset( $manifest['jio_contract_version'], $manifest['jio_generation'], $manifest['jio_revision'], $manifest['jio_outcome'] )
+			&& is_int( $manifest['jio_contract_version'] )
+			&& $manifest['jio_contract_version'] === (int) $state['contract_version']
+			&& is_string( $manifest['jio_generation'] )
+			&& is_string( $manifest['jio_revision'] )
+			&& is_string( $manifest['jio_outcome'] )
+			&& hash_equals( (string) $state['generation'], $manifest['jio_generation'] )
+			&& hash_equals( (string) $state['revision'], $manifest['jio_revision'] )
+			&& hash_equals( (string) $state['outcome'], $manifest['jio_outcome'] );
+	}
+
 	/** Validate the versioned public contract's structural and terminal invariants.
 	 *
 	 * @param mixed $state Contract result.
