@@ -19,6 +19,8 @@ final class JioReadinessTest extends WP_UnitTestCase {
 	private string $source_path = '';
 	private string $source_directory = '';
 	private ?array $contract_state = null;
+	private int $contract_state_reads = 0;
+	private bool $change_state_on_second_read = false;
 	private array $saved_options = array();
 
 	public function set_up(): void {
@@ -164,21 +166,12 @@ final class JioReadinessTest extends WP_UnitTestCase {
 	public function test_state_change_during_manifest_build_prevents_use_of_the_snapshot(): void {
 		$readiness = $this->readiness();
 		$before    = $readiness->state( $this->attachment_id );
-		$changed    = false;
-		// Use a named callback so the one-shot filter can be removed on its first invocation.
-		$filter = function ( array $uploads ) use ( &$changed, &$filter ): array {
-			if ( ! $changed ) {
-				$changed              = true;
-				$this->contract_state = $this->state_fixture( 'pending', array( 'full|image/webp' ), array(), false );
-			}
-			remove_filter( 'wp_upload_dir', $filter, 1000 );
-			return $uploads;
-		};
-		add_filter( 'wp_upload_dir', $filter, 1000 );
+		$this->contract_state_reads        = 0;
+		$this->change_state_on_second_read = true;
 		$manifest = ( new ManifestBuilder( $readiness ) )->build( $this->attachment_id );
 		self::assertNull( $manifest, 'the builder rejects a readiness transition that occurs during file hashing' );
 		self::assertFalse( $readiness->snapshot_still_current( $this->attachment_id, $before ) );
-		self::assertTrue( $changed );
+		self::assertSame( 'pending', $this->contract_state['outcome'] );
 	}
 
 	public function test_skipped_manifest_contains_only_existing_files_and_never_invents_derivatives(): void {
@@ -215,7 +208,7 @@ final class JioReadinessTest extends WP_UnitTestCase {
 		$pending_id           = $jobs->enqueue( $this->attachment_id, null, true );
 		self::assertGreaterThan( 0, $pending_id );
 		update_option( 'jmo_auto_offload', true, false );
-		$discovery = new MediaDiscovery( $jobs, new QueueWorker(), $readiness );
+		$discovery = new MediaDiscovery( $jobs, new QueueWorker( $jobs ), $readiness );
 		$discovery->jio_terminal( $this->contract_state );
 		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT status,manifest_json FROM ' . QueueSchema::jobs_table() . ' WHERE id = %d', $pending_id ), ARRAY_A );
 		self::assertIsArray( $row );
@@ -237,7 +230,7 @@ final class JioReadinessTest extends WP_UnitTestCase {
 		$pending_id           = $jobs->enqueue( $this->attachment_id, null, true );
 		update_option( 'jmo_auto_offload', true, false );
 		$this->contract_state['revision'] = str_repeat( 'e', 64 );
-		( new MediaDiscovery( $jobs, new QueueWorker(), $readiness ) )->jio_terminal( $event_state );
+		( new MediaDiscovery( $jobs, new QueueWorker( $jobs ), $readiness ) )->jio_terminal( $event_state );
 		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT status,manifest_json FROM ' . QueueSchema::jobs_table() . ' WHERE id = %d', $pending_id ), ARRAY_A );
 		self::assertSame( 'pending_optimization', $row['status'] );
 		self::assertNull( $row['manifest_json'] );
@@ -255,6 +248,10 @@ final class JioReadinessTest extends WP_UnitTestCase {
 			static fn ( string $file ): bool => $active && 'jocky-image-optimizer/jocky-image-optimizer.php' === $file
 		);
 		return new JioReadiness( $detector, function ( int $attachment_id ): ?array {
+			++$this->contract_state_reads;
+			if ( $this->change_state_on_second_read && 2 === $this->contract_state_reads ) {
+				$this->contract_state = $this->state_fixture( 'pending', array( 'full|image/webp' ), array(), false );
+			}
 			return $attachment_id === $this->attachment_id ? $this->contract_state : null;
 		} );
 	}
