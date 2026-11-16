@@ -99,4 +99,62 @@
 			button.textContent = originalLabel;
 		}
 	});
+
+	const cdnButton = document.getElementById('jmo-cdn-readiness-button');
+	const cdnFeedback = document.getElementById('jmo-cdn-readiness-feedback');
+	if (!cdnButton || !cdnFeedback || typeof window.jmoCdnReadiness === 'undefined') {
+		return;
+	}
+	let cdnRequestInFlight = false;
+	cdnButton.addEventListener('click', async () => {
+		if (cdnRequestInFlight) {
+			return;
+		}
+		cdnRequestInFlight = true;
+		cdnButton.disabled = true;
+		cdnButton.setAttribute('aria-busy', 'true');
+		cdnButton.textContent = window.jmoCdnReadiness.testing;
+		const show = (kind, heading, message, testedAt) => {
+			const paragraph = document.createElement('p');
+			const title = document.createElement('strong');
+			title.textContent = heading;
+			paragraph.appendChild(title);
+			paragraph.appendChild(document.createElement('br'));
+			const detail = document.createElement('span');
+			detail.textContent = message;
+			paragraph.appendChild(detail);
+			if (testedAt) {
+				paragraph.appendChild(document.createElement('br'));
+				const time = document.createElement('span');
+				time.className = 'description';
+				time.textContent = 'Last tested: ' + new Date(testedAt).toLocaleString();
+				paragraph.appendChild(time);
+			}
+			cdnFeedback.className = 'notice ' + (kind === 'success' ? 'notice-success' : kind === 'warning' ? 'notice-warning' : 'notice-error') + ' inline';
+			cdnFeedback.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+			cdnFeedback.setAttribute('aria-live', kind === 'error' ? 'assertive' : 'polite');
+			cdnFeedback.replaceChildren(paragraph);
+		};
+		try {
+			const response = await fetch(window.jmoCdnReadiness.ajaxUrl, {
+				method: 'POST',
+				credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+				body: new URLSearchParams({ action: 'jmo_test_cdn_readiness', cdn_nonce: cdnButton.dataset.nonce || '' }).toString()
+			});
+			const payload = await response.json();
+			const result = payload && payload.data;
+			if (!result || typeof result.message !== 'string') {
+				throw new Error('unexpected');
+			}
+			show(payload.success && result.status === 'ready' ? 'success' : 'error', payload.success ? 'CDN Readiness Successful' : 'CDN Readiness Failed', result.message, result.tested_at || '');
+		} catch (error) {
+			show('error', 'CDN Readiness Failed', 'WordPress returned an unexpected response or could not be reached. Refresh the page and try again.', '');
+		} finally {
+			cdnRequestInFlight = false;
+			cdnButton.disabled = false;
+			cdnButton.removeAttribute('aria-busy');
+			cdnButton.textContent = window.jmoCdnReadiness.test;
+		}
+	});
 })();

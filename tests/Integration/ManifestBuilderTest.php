@@ -4,15 +4,34 @@ declare(strict_types=1);
 namespace Jocky\MediaOffloader\Tests\Integration;
 
 use Jocky\MediaOffloader\Media\ManifestBuilder;
+use Jocky\MediaOffloader\Media\VerifiedObjectResolver;
+use Jocky\MediaOffloader\Queue\JobRepository;
+use Jocky\MediaOffloader\Queue\QueueSchema;
+use Jocky\MediaOffloader\Storage\CdnReadiness;
+use Jocky\MediaOffloader\Storage\ConnectionResult;
 use WP_UnitTestCase;
 
 final class ManifestBuilderTest extends WP_UnitTestCase {
 	private array $attachment_ids = array();
 	private array $created_paths   = array();
 	private array $created_dirs    = array();
+	private array $saved_options   = array();
+
+	protected function set_up(): void {
+		parent::set_up();
+		foreach ( array( 'jmo_settings', 'jmo_cdn_delivery', 'jmo_cdn_readiness' ) as $option ) {
+			$this->saved_options[ $option ] = get_option( $option, null );
+		}
+	}
 
 	public function tear_down(): void {
+		global $wpdb;
 		foreach ( $this->attachment_ids as $attachment_id ) {
+			$jobs = $wpdb->get_col( $wpdb->prepare( 'SELECT id FROM ' . QueueSchema::jobs_table() . ' WHERE attachment_id = %d', $attachment_id ) );
+			foreach ( $jobs as $job_id ) {
+				$wpdb->delete( QueueSchema::objects_table(), array( 'job_id' => (int) $job_id ), array( '%d' ) );
+			}
+			$wpdb->delete( QueueSchema::jobs_table(), array( 'attachment_id' => $attachment_id ), array( '%d' ) );
 			update_post_meta( $attachment_id, '_wp_attachment_metadata', array() );
 			delete_post_meta( $attachment_id, '_wp_attachment_backup_sizes' );
 			wp_delete_attachment( $attachment_id, true );
@@ -27,7 +46,44 @@ final class ManifestBuilderTest extends WP_UnitTestCase {
 				rmdir( $directory );
 			}
 		}
+		foreach ( $this->saved_options as $option => $value ) {
+			if ( null === $value ) {
+				delete_option( $option );
+			} else {
+				update_option( $option, $value );
+			}
+		}
 		parent::tear_down();
+	}
+
+	public function test_only_current_fully_verified_exact_object_is_mapped_and_local_file_is_retained(): void {
+		global $wpdb;
+		$attachment_id = $this->attachment( 'delivery.pdf', 'application/pdf', '%PDF-current' );
+		$path = get_attached_file( $attachment_id, true );
+		$manifest = ( new ManifestBuilder() )->build( $attachment_id );
+		self::assertNotNull( $manifest );
+		$job_id = ( new JobRepository() )->enqueue( $attachment_id, $manifest );
+		self::assertGreaterThan( 0, $job_id );
+		$wpdb->update( QueueSchema::objects_table(), array( 'status' => 'verified' ), array( 'job_id' => $job_id ), array( '%s' ), array( '%d' ) );
+		$wpdb->update( QueueSchema::jobs_table(), array( 'status' => 'verified', 'verified_count' => count( $manifest['files'] ) ), array( 'id' => $job_id ), array( '%s', '%d' ), array( '%d' ) );
+		update_option( 'jmo_cdn_delivery', true );
+		update_option( 'jmo_settings', array( 'account_id' => str_repeat( 'a', 32 ), 'bucket' => 'jocky-cdn-storage', 'cdn_domain' => 'cdn.example.com' ) );
+		$readiness = new CdnReadiness(
+			null,
+			null,
+			static fn (): ConnectionResult => new ConnectionResult( 'connected', 'Connected.', true ),
+			null,
+			static fn ( string $url, array $args ): array => array( 'response' => array( 'code' => 200 ), 'headers' => array( 'content-length' => (string) $manifest['files'][0]['size'], 'content-type' => $manifest['files'][0]['mime'] ) )
+		);
+		self::assertSame( 'ready', $readiness->test()['status'] );
+		$local = wp_get_attachment_url( $attachment_id );
+		$resolved = ( new VerifiedObjectResolver() )->resolve( $local, $attachment_id );
+		$encoded_key = implode( '/', array_map( 'rawurlencode', explode( '/', $manifest['files'][0]['object_key'] ) ) );
+		self::assertSame( 'https://cdn.example.com/' . $encoded_key, $resolved );
+		self::assertFileExists( $path );
+		update_post_meta( $attachment_id, '_wp_attachment_metadata', array( 'file' => get_post_meta( $attachment_id, '_wp_attached_file', true ), 'revision' => 2 ) );
+		self::assertSame( $local, ( new VerifiedObjectResolver() )->resolve( $local, $attachment_id ), 'changed metadata invalidates old object eligibility' );
+		self::assertFileExists( $path );
 	}
 
 	public function test_pdf_manifest_includes_original_sizes_and_backups_but_rejects_escape(): void {

@@ -27,6 +27,7 @@ final class MediaDiscovery {
 	public function register(): void {
 		add_filter( 'wp_generate_attachment_metadata', array( $this, 'defer_after_metadata' ), PHP_INT_MAX, 2 );
 		add_action( self::DISCOVER_HOOK, array( $this, 'discover' ) );
+		add_action( 'jio_attachment_optimization_terminal_v1', array( $this, 'jio_terminal' ) );
 	}
 
 	/** Schedule discovery after core returns and persists attachment metadata.
@@ -53,14 +54,35 @@ final class MediaDiscovery {
 		if ( ! get_option( 'jmo_auto_offload', false ) || 'attachment' !== get_post_type( $attachment_id ) ) {
 			return;
 		}
-		if ( ( new JioReadiness() )->requires_confirmation( $attachment_id ) ) {
+		$jio_readiness = new JioReadiness();
+		$jio_before    = $jio_readiness->state( $attachment_id );
+		if ( $jio_readiness->requires_confirmation( $attachment_id ) ) {
 			$this->jobs->enqueue( $attachment_id, null, true );
 			return;
 		}
 		$manifest = ( new ManifestBuilder() )->build( $attachment_id );
-		if ( null !== $manifest ) {
-			$this->jobs->enqueue( $attachment_id, $manifest );
+		if ( null !== $manifest && $jio_readiness->snapshot_still_current( $attachment_id, $jio_before ) ) {
+			$pending_id = $this->jobs->pending_optimization_job_id( $attachment_id );
+			if ( $pending_id > 0 ) {
+				$this->jobs->confirm_optimization( $pending_id, $manifest );
+			} else {
+				$this->jobs->enqueue( $attachment_id, $manifest );
+			}
 			$this->worker->schedule_immediate();
+		}
+	}
+
+	/** Queue a fresh generation only after JIO publishes terminal success and auto-queueing is enabled.
+	 *
+	 * @param array $state Versioned JIO terminal result.
+	 */
+	public function jio_terminal( array $state ): void {
+		if ( 'completed' !== (string) ( $state['outcome'] ?? '' ) || empty( $state['terminal'] ) || ! get_option( 'jmo_auto_offload', false ) ) {
+			return;
+		}
+		$attachment_id = absint( $state['attachment_id'] ?? 0 );
+		if ( $attachment_id > 0 ) {
+			$this->discover( $attachment_id );
 		}
 	}
 }

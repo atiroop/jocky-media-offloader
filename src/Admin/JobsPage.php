@@ -13,6 +13,7 @@ namespace Jocky\MediaOffloader\Admin;
 
 use Jocky\MediaOffloader\Integration\JioReadiness;
 use Jocky\MediaOffloader\Media\ManifestBuilder;
+use Jocky\MediaOffloader\Media\VerifiedObjectResolver;
 use Jocky\MediaOffloader\Queue\JobRepository;
 use Jocky\MediaOffloader\Queue\QueueWorker;
 use Jocky\MediaOffloader\Storage\TransferDiagnostics;
@@ -99,15 +100,17 @@ final class JobsPage {
 		foreach ( $counts as $status => $count ) {
 			echo '<strong>' . esc_html( ucwords( str_replace( '_', ' ', $status ) ) ) . ':</strong> ' . esc_html( (string) $count ) . ' &nbsp; ';
 		}
-		echo '</p><table class="widefat striped"><thead><tr><th>' . esc_html__( 'Job', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Attachment', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Status', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Objects uploaded / verified', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Attempts', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Diagnostic', 'jocky-media-offloader' ) . '</th></tr></thead><tbody>';
+		echo '</p><table class="widefat striped"><thead><tr><th>' . esc_html__( 'Job', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Attachment', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Status', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'CDN eligibility', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Objects uploaded / verified', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Attempts', 'jocky-media-offloader' ) . '</th><th>' . esc_html__( 'Diagnostic', 'jocky-media-offloader' ) . '</th></tr></thead><tbody>';
+		$resolver = new VerifiedObjectResolver();
 		if ( array() === $rows ) {
-			echo '<tr><td colspan="6">' . esc_html__( 'No offload jobs have been created.', 'jocky-media-offloader' ) . '</td></tr>';
+			echo '<tr><td colspan="7">' . esc_html__( 'No offload jobs have been created.', 'jocky-media-offloader' ) . '</td></tr>';
 		}
 		foreach ( $rows as $row ) {
-			$total    = is_string( $row['manifest_json'] ) ? count( json_decode( $row['manifest_json'], true )['files'] ?? array() ) : 0;
-			$progress = (int) $row['uploaded_count'] . ' / ' . (int) $row['verified_count'] . ' of ' . $total;
-			$message  = ( new TransferDiagnostics() )->job_message( (string) $row['status'], isset( $row['error_code'] ) ? (string) $row['error_code'] : null );
-			echo '<tr><td>' . esc_html( (string) $row['id'] ) . '</td><td>' . esc_html( (string) $row['attachment_id'] ) . '</td><td>' . esc_html( str_replace( '_', ' ', (string) $row['status'] ) ) . '</td><td>' . esc_html( $progress ) . '</td><td>' . esc_html( (string) $row['attempts'] ) . '</td><td>' . esc_html( $message ) . '</td></tr>';
+			$total       = is_string( $row['manifest_json'] ) ? count( json_decode( $row['manifest_json'], true )['files'] ?? array() ) : 0;
+			$progress    = (int) $row['uploaded_count'] . ' / ' . (int) $row['verified_count'] . ' of ' . $total;
+			$message     = ( new TransferDiagnostics() )->job_message( (string) $row['status'], isset( $row['error_code'] ) ? (string) $row['error_code'] : null );
+			$eligibility = $resolver->eligibility( (int) $row['attachment_id'], (string) $row['status'] );
+			echo '<tr><td>' . esc_html( (string) $row['id'] ) . '</td><td>' . esc_html( (string) $row['attachment_id'] ) . '</td><td>' . esc_html( str_replace( '_', ' ', (string) $row['status'] ) ) . '</td><td>' . esc_html( $eligibility ) . '</td><td>' . esc_html( $progress ) . '</td><td>' . esc_html( (string) $row['attempts'] ) . '</td><td>' . esc_html( $message ) . '</td></tr>';
 		}
 		echo '</tbody></table></div>';
 	}
@@ -129,15 +132,22 @@ final class JobsPage {
 		if ( $attachment_id < 1 || 'attachment' !== get_post_type( $attachment_id ) ) {
 			$this->redirect( 'error' );
 		}
-		$is_dry_run = isset( $_POST['dry_run'] );
-		$needs_jio  = ( new JioReadiness() )->requires_confirmation( $attachment_id );
-		$confirmed  = isset( $_POST['jio_complete'] ) && '1' === sanitize_text_field( wp_unslash( $_POST['jio_complete'] ) );
+		$is_dry_run    = isset( $_POST['dry_run'] );
+		$jio_readiness = new JioReadiness();
+		$jio_before    = $jio_readiness->state( $attachment_id );
+		$needs_jio     = $jio_readiness->requires_confirmation( $attachment_id );
+		$can_snapshot  = $jio_readiness->can_snapshot( $attachment_id );
+		$confirmed     = isset( $_POST['jio_complete'] ) && '1' === sanitize_text_field( wp_unslash( $_POST['jio_complete'] ) );
+		if ( ! $can_snapshot ) {
+			$this->jobs->enqueue( $attachment_id, null, true );
+			$this->redirect( 'pending-optimization' );
+		}
 		if ( $needs_jio && ! $confirmed && ! $is_dry_run ) {
 			$this->jobs->enqueue( $attachment_id, null, true );
 			$this->redirect( 'pending-optimization' );
 		}
 		$manifest = ( new ManifestBuilder() )->build( $attachment_id );
-		if ( null === $manifest ) {
+		if ( null === $manifest || ! $jio_readiness->snapshot_still_current( $attachment_id, $jio_before ) ) {
 			$this->redirect( 'error' );
 		}
 		if ( $is_dry_run ) {

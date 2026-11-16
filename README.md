@@ -1,15 +1,16 @@
 # Jocky Media Offloader
 
-Jocky Media Offloader (JMO) 0.2.2 provides secure Cloudflare R2 diagnostics and an opt-in, background media copy queue. Milestone 2 adds durable jobs, confined manifests, streaming/multipart uploads, and remote verification.
+Jocky Media Offloader (JMO) 0.3.0 provides secure Cloudflare R2 diagnostics, an opt-in background copy queue, and default-off CDN delivery using current, fully verified object records.
 
 ## Safety contract
 
 - Local media retention is permanently enabled in this release.
-- JMO never deletes or moves local media, changes attachment paths or GUIDs, rewrites frontend URLs, or intercepts optimization.
+- JMO never deletes or moves local media or changes attachment paths or GUIDs. Optional frontend URLs resolve only exact current verified mappings.
 - Automatic offloading is disabled by default. No media is copied unless an administrator queues it or enables automatic queueing.
 - Large transfers run through a bounded background worker, not during Media Library uploads.
 - The Settings page's Test Connection sends only an authenticated HeadBucket request. An offload job sends PutObject or multipart requests only after explicit queueing or opt-in.
-- JIO is optional; JMO activates and operates without it.
+- JIO is optional; JMO activates and operates without it. JIO 0.6.2 or newer provides the versioned completion contract. Older/incompatible JIO keeps the manual completion workflow.
+- CDN Delivery defaults off. A successful authenticated R2 test alone does not prove the custom domain publicly serves verified objects; Diagnostics explicitly reports that CDN public readiness has not been tested.
 
 ## Requirements
 
@@ -19,7 +20,7 @@ Jocky Media Offloader (JMO) 0.2.2 provides secure Cloudflare R2 diagnostics and 
 
 ## Installation and configuration
 
-Install build/jocky-media-offloader-0.2.2.zip from **Plugins → Add Plugin → Upload Plugin**. Set the account ID, bucket, and optional CDN hostname in **Jocky Media Offloader → Settings**. Use **Offload Jobs** to preview a manifest, queue an attachment, process a bounded batch, and inspect results.
+Install build/jocky-media-offloader-0.3.0.zip from **Plugins → Add Plugin → Upload Plugin**. Set the account ID, bucket, and optional CDN hostname in **Jocky Media Offloader → Settings**. Use **Offload Jobs** to preview a manifest, queue an attachment, process a bounded batch, and inspect results.
 
 Configure secrets in wp-config.php:
 
@@ -43,9 +44,14 @@ Create the production ZIP with composer package on Windows or run the packaging 
 ## Documentation
 
 - [Queue and transfer architecture](docs/architecture.md)
+- [Milestone 3 delivery and compatibility](docs/milestone-3.md)
 - [Security decisions](docs/security.md)
 - [Milestones](docs/milestones.md)
 
 ## JIO detection
 
-JMO identifies JIO from the published plugin name/text domain and reads the JIO_VERSION constant when available. JIO 0.6.1-beta.1 was inspected. JMO queues JPEG/PNG images as `pending_optimization` while JIO is active. An administrator must explicitly confirm JIO completion before JMO snapshots core media and hash-matching JIO derivative records. JIO's derivative update action is per derivative and does not prove attachment-level completion. A supported completion contract remains a Milestone 3 dependency.
+JMO identifies JIO from the published plugin name/text domain and reads `JIO_VERSION` when available. JIO 0.6.2 adds the `jio_attachment_optimization_state_v1` filter and `jio_attachment_optimization_terminal_v1` action. JMO snapshots only after the expected work set is terminal and rechecks generation/revision across manifest hashing. Older or incompatible JIO retains explicit manual completion confirmation.
+
+## CDN delivery limits and rollback
+
+Supported paths include WordPress attachment URLs, image source/srcset APIs, core-recognized content images, JIO picture sources, and Elementor Image/Image Box widgets when their final render hook runs. Elementor background controls and generated CSS are unsupported. Active Elementor Element Caching may return stored markup without running the rewrite filter; clear Elementor cache and regenerate files/data, then purge relevant WP Rocket/page cache, Cloudflare edge cache, and browser cache. JMO does not purge a whole site for each object. Disabling CDN Delivery immediately restores local URLs for uncached requests, but cannot revoke HTML already stored in external caches. Public CDN readiness (HTTPS, object retrieval, MIME, and length) remains an explicit precondition and is not inferred from R2 HeadBucket.

@@ -7,6 +7,7 @@ use Jocky\MediaOffloader\Admin\DiagnosticsPage;
 use Jocky\MediaOffloader\Admin\SettingsPage;
 use Jocky\MediaOffloader\Config\CredentialsProvider;
 use Jocky\MediaOffloader\Plugin;
+use Jocky\MediaOffloader\Media\VerifiedObjectResolver;
 use Jocky\MediaOffloader\Storage\ConnectionStatus;
 use Jocky\MediaOffloader\Storage\StorageClientFactory;
 use WP_UnitTestCase;
@@ -14,8 +15,11 @@ use WP_UnitTestCase;
 final class PluginSmokeTest extends WP_UnitTestCase {
 	public function test_activation_and_deactivation_preserve_options(): void {
 		delete_option( 'jmo_settings' );
+		delete_option( 'jmo_cdn_delivery' );
 		Plugin::activate();
 		self::assertSame( 'jocky-cdn-storage', get_option( 'jmo_settings' )['bucket'] );
+		self::assertFalse( get_option( 'jmo_cdn_delivery', false ) );
+		self::assertFalse( get_option( 'jmo_auto_offload', false ) );
 		$custom = array(
 			'account_id' => str_repeat( 'a', 32 ),
 			'bucket'     => 'custom-bucket',
@@ -24,6 +28,12 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 		update_option( 'jmo_settings', $custom );
 		Plugin::deactivate();
 		self::assertSame( $custom, get_option( 'jmo_settings' ) );
+	}
+
+	public function test_plugin_header_and_runtime_use_the_milestone_three_version(): void {
+		$plugin_data = get_plugin_data( JMO_FILE, false, false );
+		self::assertSame( '0.3.0', JMO_VERSION );
+		self::assertSame( JMO_VERSION, $plugin_data['Version'] );
 	}
 
 	public function test_pages_require_administrator_and_escape_diagnostic_output(): void {
@@ -50,6 +60,16 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 		$settings = new SettingsPage( new StorageClientFactory( new CredentialsProvider() ) );
 		$_POST    = array();
 		self::assertSame( 'forbidden', $settings->authorize_ajax_connection_test()->get_error_code() );
+	}
+
+	public function test_cdn_readiness_action_rejects_unauthorized_and_invalid_nonce_requests(): void {
+		$settings = new SettingsPage( new StorageClientFactory( new CredentialsProvider() ) );
+		wp_set_current_user( 0 );
+		$_POST = array();
+		self::assertSame( 'forbidden', $settings->authorize_ajax_cdn_readiness()->get_error_code() );
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+		$_POST = array( 'cdn_nonce' => 'invalid' );
+		self::assertSame( 'invalid_nonce', $settings->authorize_ajax_cdn_readiness()->get_error_code() );
 	}
 
 	public function test_diagnostics_escapes_transient_text_and_jio_is_optional(): void {
@@ -111,5 +131,16 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 		self::assertFalse( has_filter( 'wp_calculate_image_srcset' ) );
 		self::assertFalse( has_action( 'wp_handle_upload' ) );
 		self::assertNotFalse( has_filter( 'wp_generate_attachment_metadata' ) );
+	}
+
+	public function test_cdn_resolver_fails_closed_when_disabled_or_unverified(): void {
+		$attachment_id = wp_insert_attachment( array( 'post_mime_type' => 'application/pdf', 'post_title' => 'resolver test', 'post_status' => 'inherit' ), false );
+		$url = 'http://example.org/wp-content/uploads/2026/11/test.pdf';
+		$resolver = new VerifiedObjectResolver();
+		update_option( 'jmo_cdn_delivery', false );
+		self::assertSame( $url, $resolver->resolve( $url, $attachment_id ) );
+		update_option( 'jmo_cdn_delivery', true );
+		update_option( 'jmo_settings', array( 'account_id' => str_repeat( 'a', 32 ), 'bucket' => 'jocky-cdn-storage', 'cdn_domain' => 'cdn.example.com' ) );
+		self::assertSame( $url, $resolver->resolve( $url, $attachment_id ), 'no verified DB mapping must retain the local URL' );
 	}
 }
