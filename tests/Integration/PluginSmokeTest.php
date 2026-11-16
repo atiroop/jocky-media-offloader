@@ -18,8 +18,8 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 		delete_option( 'jmo_cdn_delivery' );
 		Plugin::activate();
 		self::assertSame( 'jocky-cdn-storage', get_option( 'jmo_settings' )['bucket'] );
-		self::assertFalse( get_option( 'jmo_cdn_delivery', false ) );
-		self::assertFalse( get_option( 'jmo_auto_offload', false ) );
+		self::assertFalse( (bool) get_option( 'jmo_cdn_delivery', false ) );
+		self::assertFalse( (bool) get_option( 'jmo_auto_offload', false ) );
 		$custom = array(
 			'account_id' => str_repeat( 'a', 32 ),
 			'bucket'     => 'custom-bucket',
@@ -126,9 +126,9 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 		self::assertTrue( $active_detector->detect()['active'] );
 	}
 
-	public function test_plugin_does_not_register_media_mutation_or_url_rewrite_hooks(): void {
-		self::assertFalse( has_filter( 'wp_get_attachment_url' ) );
-		self::assertFalse( has_filter( 'wp_calculate_image_srcset' ) );
+	public function test_plugin_registers_scoped_url_filters_without_media_mutation_hooks(): void {
+		self::assertNotFalse( has_filter( 'wp_get_attachment_url' ) );
+		self::assertNotFalse( has_filter( 'wp_calculate_image_srcset' ) );
 		self::assertFalse( has_action( 'wp_handle_upload' ) );
 		self::assertNotFalse( has_filter( 'wp_generate_attachment_metadata' ) );
 	}

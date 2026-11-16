@@ -153,10 +153,12 @@ final class CdnReadiness {
 			return null;
 		}
 		foreach ( is_array( $rows ) ? $rows : array() as $row ) {
-			$manifest      = json_decode( (string) $row['manifest_json'], true );
-			$file          = is_array( $manifest ) ? ( $manifest['files'][ (int) $row['object_index'] ] ?? null ) : null;
-			$attachment_id = (int) $row['attachment_id'];
-			$current       = hash( 'sha256', (string) wp_json_encode( array( get_post_meta( $attachment_id, '_wp_attached_file', true ), wp_get_attachment_metadata( $attachment_id, true ), get_post_meta( $attachment_id, '_wp_attachment_backup_sizes', true ) ) ) );
+			$manifest         = json_decode( (string) $row['manifest_json'], true );
+			$file             = is_array( $manifest ) ? ( $manifest['files'][ (int) $row['object_index'] ] ?? null ) : null;
+			$attachment_id    = (int) $row['attachment_id'];
+			$current_metadata = wp_get_attachment_metadata( $attachment_id, true );
+			$current_metadata = is_array( $current_metadata ) ? $current_metadata : array();
+			$current          = hash( 'sha256', (string) wp_json_encode( array( get_post_meta( $attachment_id, '_wp_attached_file', true ), $current_metadata, get_post_meta( $attachment_id, '_wp_attachment_backup_sizes', true ) ) ) );
 			if ( ! is_array( $file ) || ! isset( $manifest['attachment_fingerprint'] ) || ! hash_equals( (string) $row['manifest_hash'], (string) ( $manifest['hash'] ?? '' ) ) || ! hash_equals( (string) $manifest['attachment_fingerprint'], $current ) || (string) $file['object_key'] !== (string) $row['object_key'] || (string) $file['relative_path'] !== (string) $row['relative_path'] || (int) $file['size'] !== (int) $row['size_bytes'] || (string) $file['mime'] !== (string) $row['mime_type'] || (string) $file['sha256'] !== (string) $row['sha256'] ) {
 				continue;
 			}

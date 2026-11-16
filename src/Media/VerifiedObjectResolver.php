@@ -400,7 +400,9 @@ final class VerifiedObjectResolver {
 	 * @return bool Whether the attachment metadata fingerprint is current.
 	 */
 	private function current_fingerprint( int $attachment_id, array $manifest ): bool {
-		$current = hash( 'sha256', (string) wp_json_encode( array( get_post_meta( $attachment_id, '_wp_attached_file', true ), wp_get_attachment_metadata( $attachment_id, true ), get_post_meta( $attachment_id, '_wp_attachment_backup_sizes', true ) ) ) );
+		$current_metadata = wp_get_attachment_metadata( $attachment_id, true );
+		$current_metadata = is_array( $current_metadata ) ? $current_metadata : array();
+		$current          = hash( 'sha256', (string) wp_json_encode( array( get_post_meta( $attachment_id, '_wp_attached_file', true ), $current_metadata, get_post_meta( $attachment_id, '_wp_attachment_backup_sizes', true ) ) ) );
 		return isset( $manifest['attachment_fingerprint'] ) && hash_equals( (string) $manifest['attachment_fingerprint'], $current );
 	}
 
