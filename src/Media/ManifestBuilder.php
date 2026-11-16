@@ -25,6 +25,10 @@ final class ManifestBuilder {
 		if ( $attachment_id < 1 || 'attachment' !== get_post_type( $attachment_id ) ) {
 			return null;
 		}
+		$jio_state = ( new \Jocky\MediaOffloader\Integration\JioReadiness() )->state( $attachment_id );
+		if ( is_array( $jio_state ) && ! in_array( (string) ( $jio_state['outcome'] ?? '' ), array( 'completed', 'skipped' ), true ) ) {
+			return null;
+		}
 		$uploads  = wp_upload_dir();
 		$root     = isset( $uploads['basedir'] ) && empty( $uploads['error'] ) ? realpath( $uploads['basedir'] ) : false;
 		$attached = get_attached_file( $attachment_id, true );
@@ -128,7 +132,10 @@ final class ManifestBuilder {
 		}
 		$attachment_fingerprint = hash( 'sha256', (string) wp_json_encode( array( get_post_meta( $attachment_id, '_wp_attached_file', true ), $metadata, get_post_meta( $attachment_id, '_wp_attachment_backup_sizes', true ) ) ) );
 		$canonical_data         = array_map( static fn ( array $file ): array => array( $file['relative_path'], $file['size'], $file['mime'], $file['sha256'], $file['file_identity'] ), $files );
-		$hash                   = hash( 'sha256', (string) wp_json_encode( array( self::VERSION, $attachment_id, $attachment_fingerprint, $canonical_data ) ) );
+		$jio_generation         = is_array( $jio_state ) ? (string) $jio_state['generation'] : '';
+		$jio_revision           = is_array( $jio_state ) ? (string) $jio_state['revision'] : '';
+		$jio_outcome            = is_array( $jio_state ) ? (string) $jio_state['outcome'] : '';
+		$hash                   = hash( 'sha256', (string) wp_json_encode( array( self::VERSION, $attachment_id, $attachment_fingerprint, $canonical_data, $jio_generation, $jio_revision, $jio_outcome ) ) );
 		foreach ( $files as $index => &$file ) {
 			$file['object_key'] = 'jmo/v1/' . $site_key . '/' . $attachment_id . '/' . $hash . '/' . sprintf( '%03d', $index ) . '-' . $file['sha256'] . '-' . rawurlencode( basename( $file['relative_path'] ) );
 			if ( strlen( $file['object_key'] ) > 1024 ) {
@@ -140,6 +147,9 @@ final class ManifestBuilder {
 			'version'                => self::VERSION,
 			'attachment_id'          => $attachment_id,
 			'attachment_fingerprint' => $attachment_fingerprint,
+			'jio_generation'         => $jio_generation,
+			'jio_revision'           => $jio_revision,
+			'jio_outcome'            => $jio_outcome,
 			'files'                  => $files,
 			'hash'                   => $hash,
 		);

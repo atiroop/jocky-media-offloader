@@ -13,6 +13,7 @@ use Jocky\MediaOffloader\Config\Configuration;
 use Jocky\MediaOffloader\Config\CredentialsProvider;
 use Jocky\MediaOffloader\Storage\ConnectionResult;
 use Jocky\MediaOffloader\Storage\ConnectionStatus;
+use Jocky\MediaOffloader\Storage\CdnReadiness;
 use Jocky\MediaOffloader\Storage\StorageClientFactory;
 use Throwable;
 
@@ -38,6 +39,7 @@ final class SettingsPage {
 		add_action( 'admin_menu', array( $this, 'menu' ) );
 		add_action( 'admin_init', array( $this, 'settings' ) );
 		add_action( 'wp_ajax_jmo_test_connection', array( $this, 'ajax_test_connection' ) );
+		add_action( 'wp_ajax_jmo_test_cdn_readiness', array( $this, 'ajax_test_cdn_readiness' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 	}
 
@@ -73,6 +75,15 @@ final class SettingsPage {
 				),
 			)
 		);
+		wp_localize_script(
+			'jmo-admin',
+			'jmoCdnReadiness',
+			array(
+				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+				'testing' => __( 'Testing CDN Readiness...', 'jocky-media-offloader' ),
+				'test'    => __( 'Run CDN Readiness Test', 'jocky-media-offloader' ),
+			)
+		);
 	}
 
 	/** Add the top-level menu and settings page. */
@@ -92,7 +103,18 @@ final class SettingsPage {
 				'default'           => array(),
 			)
 		);
+		register_setting(
+			'jmo_settings_group',
+			'jmo_cdn_delivery',
+			array(
+				'type'              => 'boolean',
+				'sanitize_callback' => static fn ( $value ): bool => in_array( $value, array( true, 1, '1', 'on' ), true ),
+				'default'           => false,
+			)
+		);
 		add_settings_section( 'jmo_r2', __( 'Cloudflare R2', 'jocky-media-offloader' ), '__return_false', 'jmo-settings' );
+		add_settings_section( 'jmo_cdn', __( 'CDN Delivery', 'jocky-media-offloader' ), array( $this, 'cdn_section' ), 'jmo-settings' );
+		add_settings_field( 'jmo_cdn_delivery', __( 'Enable CDN Delivery', 'jocky-media-offloader' ), array( $this, 'cdn_toggle' ), 'jmo-settings', 'jmo_cdn' );
 		foreach ( array(
 			'account_id' => __( 'Cloudflare Account ID', 'jocky-media-offloader' ),
 			'bucket'     => __( 'R2 Bucket Name', 'jocky-media-offloader' ),
@@ -110,6 +132,86 @@ final class SettingsPage {
 				)
 			);
 		}
+	}
+
+	/** Explain that CDN delivery requires current verified objects and public access. */
+	public function cdn_section(): void {
+		echo '<p>' . esc_html__( 'JMO rewrites only exact, current resources with fully verified R2 records. Local files remain enabled as the permanent fallback.', 'jocky-media-offloader' ) . '</p>';
+	}
+
+	/** Render the explicit opt-in switch; it is off on new installs and upgrades. */
+	public function cdn_toggle(): void {
+		echo '<input type="hidden" name="jmo_cdn_delivery" value="0" />';
+		printf( '<label><input type="checkbox" name="jmo_cdn_delivery" value="1" %s /> %s</label>', checked( get_option( 'jmo_cdn_delivery', false ), true, false ), esc_html__( 'Enable verified CDN URLs on supported frontend attachment paths', 'jocky-media-offloader' ) );
+		echo '<p class="description">' . esc_html__( 'The readiness test checks R2 access and a verified public object response. Ordinary image display does not require CORS; canvas and script access are not supported. Elementor background CSS is unsupported. Purge relevant page, Elementor, WP Rocket, Cloudflare, and browser caches manually when needed.', 'jocky-media-offloader' ) . '</p>';
+		echo '<div id="jmo-cdn-readiness-area"><button type="button" class="button button-secondary" id="jmo-cdn-readiness-button" data-nonce="' . esc_attr( wp_create_nonce( 'jmo_test_cdn_readiness' ) ) . '" aria-describedby="jmo-cdn-readiness-feedback">' . esc_html__( 'Run CDN Readiness Test', 'jocky-media-offloader' ) . '</button>';
+		$this->render_cdn_feedback( ( new CdnReadiness() )->current() );
+		echo '</div>';
+	}
+
+	/** Run an authenticated, read-only R2 and public HTTPS object check. */
+	public function ajax_test_cdn_readiness(): void {
+		$error = $this->authorize_ajax_cdn_readiness();
+		if ( null !== $error ) {
+			wp_send_json_error(
+				array(
+					'code'    => $error->get_error_code(),
+					'message' => $error->get_error_message(),
+				),
+				403
+			);
+		}
+		$result = ( new CdnReadiness() )->test();
+		if ( 'ready' === $result['status'] ) {
+			wp_send_json_success( $result );
+		}
+		wp_send_json_error( $result, 200 );
+	}
+
+	/** Validate the capability and nonce for the CDN test without exposing raw errors.
+	 *
+	 * @return \WP_Error|null Sanitized authorization failure.
+	 */
+	public function authorize_ajax_cdn_readiness(): ?\WP_Error {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			return new \WP_Error( 'forbidden', __( 'You are not allowed to test CDN readiness.', 'jocky-media-offloader' ) );
+		}
+		$nonce = isset( $_POST['cdn_nonce'] ) && is_string( $_POST['cdn_nonce'] ) ? sanitize_text_field( wp_unslash( $_POST['cdn_nonce'] ) ) : '';
+		if ( '' === $nonce || ! wp_verify_nonce( $nonce, 'jmo_test_cdn_readiness' ) ) {
+			return new \WP_Error( 'invalid_nonce', __( 'Your session expired. Refresh and run the readiness test again.', 'jocky-media-offloader' ) );
+		}
+		return null;
+	}
+
+	/** Render persisted public-readiness feedback.
+	 *
+	 * @param array<string,mixed>|null $result Sanitized result to display.
+	 */
+	private function render_cdn_feedback( ?array $result ): void {
+		$class = 'notice-info';
+		$label = __( 'CDN Readiness Not Tested', 'jocky-media-offloader' );
+		$text  = __( 'Run the read-only check to verify R2 access and a public HTTPS response for one verified object.', 'jocky-media-offloader' );
+		if ( is_array( $result ) ) {
+			if ( ! empty( $result['stale'] ) ) {
+				$class = 'notice-warning';
+				$label = __( 'CDN Readiness Result Stale', 'jocky-media-offloader' );
+				$text  = __( 'The CDN domain, credential identity, bucket, or verified object changed after this test. Run it again.', 'jocky-media-offloader' );
+			} elseif ( 'ready' === (string) $result['status'] ) {
+				$class = 'notice-success';
+				$label = __( 'CDN Readiness Successful', 'jocky-media-offloader' );
+				$text  = (string) $result['message'];
+			} else {
+				$class = 'notice-error';
+				$label = __( 'CDN Readiness Failed', 'jocky-media-offloader' );
+				$text  = (string) $result['message'];
+			}
+		}
+		$tested = is_array( $result ) ? $this->format_tested_at( (string) $result['tested_at'] ) : '';
+		echo '<div id="jmo-cdn-readiness-feedback" class="notice ' . esc_attr( $class ) . ' inline" role="status" aria-live="polite" aria-atomic="true"><p><strong>' . esc_html( $label ) . '</strong><br /><span>' . esc_html( $text ) . '</span>';
+		if ( '' !== $tested ) {
+			echo '<br /><span class="description">' . esc_html__( 'Last tested:', 'jocky-media-offloader' ) . ' ' . esc_html( $tested ) . '</span>';
+		}
+		echo '</p></div>';
 	}
 
 	/**

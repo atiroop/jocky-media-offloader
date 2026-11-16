@@ -18,6 +18,7 @@ use Jocky\MediaOffloader\Queue\JobRepository;
 use Jocky\MediaOffloader\Queue\MediaDiscovery;
 use Jocky\MediaOffloader\Queue\QueueSchema;
 use Jocky\MediaOffloader\Queue\QueueWorker;
+use Jocky\MediaOffloader\Media\VerifiedObjectResolver;
 
 /** Plugin lifecycle and service wiring. */
 final class Plugin {
@@ -37,6 +38,7 @@ final class Plugin {
 			);
 		}
 		add_option( 'jmo_auto_offload', false, '', false );
+		add_option( 'jmo_cdn_delivery', false, '', false );
 	}
 
 	/** Preserve all settings and media during deactivation. */
@@ -54,6 +56,7 @@ final class Plugin {
 		$worker = new QueueWorker( $jobs );
 		$worker->register();
 		( new MediaDiscovery( $jobs, $worker ) )->register();
+		( new VerifiedObjectResolver() )->register();
 		if ( is_admin() ) {
 			$credentials = new CredentialsProvider();
 			$factory     = new StorageClientFactory( $credentials );
