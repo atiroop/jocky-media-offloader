@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then version="0.3.0"; fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then version="0.3.1"; fi
           stage="$RUNNER_TEMP/jmo-stage/jocky-media-offloader"
           mkdir -p "$stage" build
           cp jocky-media-offloader.php uninstall.php readme.txt composer.json composer.lock "$stage/"

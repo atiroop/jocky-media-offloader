@@ -9,12 +9,20 @@ declare(strict_types=1);
 
 namespace Jocky\MediaOffloader\Media;
 
+use Jocky\MediaOffloader\Integration\JioReadiness;
+
 // phpcs:disable WordPress.WP.AlternativeFunctions.file_system_read_finfo_open, WordPress.WP.AlternativeFunctions.file_system_read_finfo_file -- finfo is required to detect the MIME type of an existing file without altering WordPress's upload allowlist.
 
 /** Resolves original, generated and backup media files without changing them. */
 final class ManifestBuilder {
 	public const VERSION   = 1;
 	public const MAX_FILES = 250;
+
+	/** Create the manifest builder.
+	 *
+	 * @param JioReadiness $jio_readiness Optional JIO contract reader.
+	 */
+	public function __construct( private readonly JioReadiness $jio_readiness = new JioReadiness() ) {}
 
 	/** Build a stable manifest for one existing attachment.
 	 *
@@ -25,8 +33,8 @@ final class ManifestBuilder {
 		if ( $attachment_id < 1 || 'attachment' !== get_post_type( $attachment_id ) ) {
 			return null;
 		}
-		$jio_state = ( new \Jocky\MediaOffloader\Integration\JioReadiness() )->state( $attachment_id );
-		if ( is_array( $jio_state ) && ! in_array( (string) ( $jio_state['outcome'] ?? '' ), array( 'completed', 'skipped' ), true ) ) {
+		$jio_state = $this->jio_readiness->state( $attachment_id );
+		if ( ( $this->jio_readiness->has_compatible_contract( $attachment_id ) && null === $jio_state ) || ( null !== $jio_state && ! JioReadiness::is_terminal_eligible( $jio_state ) ) ) {
 			return null;
 		}
 		$uploads  = wp_upload_dir();
@@ -143,6 +151,9 @@ final class ManifestBuilder {
 			}
 		}
 		unset( $file );
+		if ( ! $this->jio_readiness->snapshot_still_current( $attachment_id, $jio_state ) ) {
+			return null;
+		}
 		return array(
 			'version'                => self::VERSION,
 			'attachment_id'          => $attachment_id,

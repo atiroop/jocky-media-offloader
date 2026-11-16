@@ -1,6 +1,6 @@
 # Jocky Media Offloader
 
-Jocky Media Offloader (JMO) 0.3.0 provides secure Cloudflare R2 diagnostics, an opt-in background copy queue, and default-off CDN delivery using current, fully verified object records.
+Jocky Media Offloader (JMO) 0.3.1 provides secure Cloudflare R2 diagnostics, an opt-in background copy queue, and default-off CDN delivery using current, fully verified object records.
 
 ## Safety contract
 
@@ -9,7 +9,7 @@ Jocky Media Offloader (JMO) 0.3.0 provides secure Cloudflare R2 diagnostics, an 
 - Automatic offloading is disabled by default. No media is copied unless an administrator queues it or enables automatic queueing.
 - Large transfers run through a bounded background worker, not during Media Library uploads.
 - The Settings page's Test Connection sends only an authenticated HeadBucket request. An offload job sends PutObject or multipart requests only after explicit queueing or opt-in.
-- JIO is optional; JMO activates and operates without it. JIO 0.6.2 or newer provides the versioned completion contract. Older/incompatible JIO keeps the manual completion workflow.
+- JIO is optional; JMO activates and operates without it. JIO 0.6.2 or newer provides the versioned completion contract. Current terminal `completed` and all-skipped outcomes are eligible; pending, processing, partial, failed, stale, and malformed results remain held. Older/incompatible JIO keeps the manual completion workflow.
 - CDN Delivery defaults off. A successful authenticated R2 test alone does not prove the custom domain publicly serves verified objects; Diagnostics explicitly reports that CDN public readiness has not been tested.
 
 ## Requirements
@@ -20,7 +20,7 @@ Jocky Media Offloader (JMO) 0.3.0 provides secure Cloudflare R2 diagnostics, an 
 
 ## Installation and configuration
 
-Install build/jocky-media-offloader-0.3.0.zip from **Plugins → Add Plugin → Upload Plugin**. Set the account ID, bucket, and optional CDN hostname in **Jocky Media Offloader → Settings**. Use **Offload Jobs** to preview a manifest, queue an attachment, process a bounded batch, and inspect results.
+Install build/jocky-media-offloader-0.3.1.zip from **Plugins → Add Plugin → Upload Plugin**. Set the account ID, bucket, and optional CDN hostname in **Jocky Media Offloader → Settings**. Use **Offload Jobs** to preview a manifest, queue an attachment, process a bounded batch, and inspect results.
 
 Configure secrets in wp-config.php:
 

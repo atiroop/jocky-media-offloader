@@ -30,9 +30,9 @@ final class PluginSmokeTest extends WP_UnitTestCase {
 		self::assertSame( $custom, get_option( 'jmo_settings' ) );
 	}
 
-	public function test_plugin_header_and_runtime_use_the_milestone_three_version(): void {
+	public function test_plugin_header_and_runtime_use_the_milestone_three_patch_version(): void {
 		$plugin_data = get_plugin_data( JMO_FILE, false, false );
-		self::assertSame( '0.3.0', JMO_VERSION );
+		self::assertSame( '0.3.1', JMO_VERSION );
 		self::assertSame( JMO_VERSION, $plugin_data['Version'] );
 	}
 
