@@ -1,6 +1,6 @@
 # Jocky Media Offloader
 
-Jocky Media Offloader (JMO) 0.3.1 provides secure Cloudflare R2 diagnostics, an opt-in background copy queue, and default-off CDN delivery using current, fully verified object records.
+Jocky Media Offloader (JMO) 0.3.2 provides secure Cloudflare R2 diagnostics, an opt-in background copy queue, and default-off CDN delivery using current, fully verified object records.
 
 ## Safety contract
 
@@ -20,7 +20,7 @@ Jocky Media Offloader (JMO) 0.3.1 provides secure Cloudflare R2 diagnostics, an 
 
 ## Installation and configuration
 
-Install build/jocky-media-offloader-0.3.1.zip from **Plugins → Add Plugin → Upload Plugin**. Set the account ID, bucket, and optional CDN hostname in **Jocky Media Offloader → Settings**. Use **Offload Jobs** to preview a manifest, queue an attachment, process a bounded batch, and inspect results.
+Install build/jocky-media-offloader-0.3.2.zip from **Plugins → Add Plugin → Upload Plugin**. Set the account ID, bucket, and optional CDN hostname in **Jocky Media Offloader → Settings**. Use **Offload Jobs** to preview a manifest, queue an attachment, process a bounded batch, and inspect results.
 
 Configure secrets in wp-config.php:
 
