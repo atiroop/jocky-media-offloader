@@ -86,6 +86,74 @@ final class ManifestBuilderTest extends WP_UnitTestCase {
 		self::assertFileExists( $path );
 	}
 
+	public function test_wordpress_image_downsize_maps_the_exact_verified_intermediate_object(): void {
+		global $wpdb;
+		$png          = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lZsAAAAASUVORK5CYII=', true );
+		$attachment_id = $this->attachment( 'photo.png', 'image/png', (string) $png );
+		$original_path = get_attached_file( $attachment_id, true );
+		$relative_file = (string) get_post_meta( $attachment_id, '_wp_attached_file', true );
+		$medium_path   = dirname( $original_path ) . DIRECTORY_SEPARATOR . 'photo-300x300.png';
+		$this->write( $medium_path, (string) $png );
+		wp_update_attachment_metadata(
+			$attachment_id,
+			array(
+				'file'  => $relative_file,
+				'width' => 600,
+				'height' => 600,
+				'sizes' => array(
+					'medium' => array(
+						'file'      => basename( $medium_path ),
+						'width'     => 300,
+						'height'    => 300,
+						'mime-type' => 'image/png',
+						'filesize'  => strlen( (string) $png ),
+					),
+				),
+			)
+		);
+
+		$manifest = ( new ManifestBuilder() )->build( $attachment_id );
+		self::assertNotNull( $manifest );
+		$job_id = ( new JobRepository() )->enqueue( $attachment_id, $manifest );
+		$wpdb->update( QueueSchema::objects_table(), array( 'status' => 'verified' ), array( 'job_id' => $job_id ), array( '%s' ), array( '%d' ) );
+		$wpdb->update( QueueSchema::jobs_table(), array( 'status' => 'verified', 'verified_count' => count( $manifest['files'] ) ), array( 'id' => $job_id ), array( '%s', '%d' ), array( '%d' ) );
+		update_option( 'jmo_settings', array( 'account_id' => str_repeat( 'a', 32 ), 'bucket' => 'jocky-cdn-storage', 'cdn_domain' => 'cdn.example.com' ) );
+		$readiness = new CdnReadiness(
+			null,
+			null,
+			static fn (): ConnectionResult => new ConnectionResult( 'connected', 'Connected.', true ),
+			null,
+			static fn ( string $url, array $args ): array => array( 'response' => array( 'code' => 200 ), 'headers' => array( 'content-length' => (string) $manifest['files'][0]['size'], 'content-type' => $manifest['files'][0]['mime'] ) )
+		);
+		self::assertSame( 'ready', $readiness->test()['status'] );
+		update_option( 'jmo_cdn_delivery', true );
+
+		$medium_relative = dirname( $relative_file ) . '/photo-300x300.png';
+		$medium_file     = null;
+		$original_file   = null;
+		foreach ( $manifest['files'] as $file ) {
+			if ( $medium_relative === $file['relative_path'] ) {
+				$medium_file = $file;
+			}
+			if ( $relative_file === $file['relative_path'] ) {
+				$original_file = $file;
+			}
+		}
+		self::assertIsArray( $medium_file );
+		self::assertIsArray( $original_file );
+		$encoded_medium_key = implode( '/', array_map( 'rawurlencode', explode( '/', $medium_file['object_key'] ) ) );
+		$encoded_original_key = implode( '/', array_map( 'rawurlencode', explode( '/', $original_file['object_key'] ) ) );
+		$image = wp_get_attachment_image_src( $attachment_id, 'medium' );
+		self::assertIsArray( $image );
+		self::assertSame( trailingslashit( wp_upload_dir()['baseurl'] ) . $medium_relative, $image[0], 'WordPress must calculate the intermediate from its local base URL' );
+		self::assertSame( 'https://cdn.example.com/' . $encoded_original_key, wp_get_attachment_url( $attachment_id ) );
+
+		$html = wp_get_attachment_image( $attachment_id, 'medium' );
+		$tag  = new \WP_HTML_Tag_Processor( $html );
+		self::assertTrue( $tag->next_tag( 'IMG' ) );
+		self::assertSame( 'https://cdn.example.com/' . $encoded_medium_key, $tag->get_attribute( 'src' ) );
+	}
+
 	public function test_pdf_manifest_includes_original_sizes_and_backups_but_rejects_escape(): void {
 		$attachment_id = $this->attachment( 'report.pdf', 'application/pdf', '%PDF-original' );
 		$original      = get_attached_file( $attachment_id, true );

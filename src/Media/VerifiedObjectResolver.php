@@ -38,6 +38,16 @@ final class VerifiedObjectResolver {
 	 * @var array<int, array<string, mixed>|null>
 	 */
 	private array $jio_state_memo = array();
+	/** Image size currently being built by WordPress, keyed by attachment ID.
+	 *
+	 * @var array<int, string|int[]>
+	 */
+	private array $image_downsize_pending = array();
+	/** Keep the base image URL local until WordPress finishes its responsive-size calculation.
+	 *
+	 * @var array<int, string|int[]>
+	 */
+	private array $local_image_sources = array();
 	/** Cached current public CDN readiness for this request.
 	 *
 	 * @var bool|null
@@ -59,6 +69,7 @@ final class VerifiedObjectResolver {
 
 	/** Register narrow attachment-aware URL and markup filters. */
 	public function register(): void {
+		add_filter( 'image_downsize', array( $this, 'prepare_image_downsize' ), PHP_INT_MAX, 3 );
 		add_filter( 'wp_get_attachment_url', array( $this, 'attachment_url' ), 99, 2 );
 		add_filter( 'wp_get_attachment_image_src', array( $this, 'image_src' ), 99, 4 );
 		add_filter( 'wp_calculate_image_srcset', array( $this, 'image_srcset' ), 99, 5 );
@@ -75,7 +86,28 @@ final class VerifiedObjectResolver {
 	 * @return string Resolved CDN URL or original URL.
 	 */
 	public function attachment_url( string $url, int $attachment_id ): string {
+		// WordPress image_downsize() replaces the original basename to form an intermediate URL.
+		if ( isset( $this->image_downsize_pending[ $attachment_id ] ) ) {
+			$size = $this->image_downsize_pending[ $attachment_id ];
+			unset( $this->image_downsize_pending[ $attachment_id ] );
+			$this->local_image_sources[ $attachment_id ] = $size;
+			return $url;
+		}
 		return $this->resolve( $url, $attachment_id );
+	}
+
+	/** Mark image URLs that WordPress will use to construct an image size and srcset.
+	 *
+	 * @param mixed        $downsize Existing preemptive image size result.
+	 * @param int          $attachment_id Attachment ID.
+	 * @param string|int[] $size Requested image size.
+	 * @return mixed Existing result.
+	 */
+	public function prepare_image_downsize( $downsize, int $attachment_id, $size ) {
+		if ( false === $downsize && get_option( 'jmo_cdn_delivery', false ) && 'attachment' === get_post_type( $attachment_id ) && wp_attachment_is_image( $attachment_id ) ) {
+			$this->image_downsize_pending[ $attachment_id ] = $size;
+		}
+		return $downsize;
 	}
 
 	/** Resolve an image source selected by core.
@@ -88,6 +120,10 @@ final class VerifiedObjectResolver {
 	 */
 	public function image_src( $image, int $attachment_id, $size, bool $icon ) {
 		if ( ! $icon && is_array( $image ) && isset( $image[0] ) && is_string( $image[0] ) ) {
+			if ( isset( $this->local_image_sources[ $attachment_id ] ) && $this->local_image_sources[ $attachment_id ] === $size ) {
+				unset( $this->local_image_sources[ $attachment_id ] );
+				return $image;
+			}
 			$image[0] = $this->resolve( $image[0], $attachment_id );
 		}
 		return $image;
