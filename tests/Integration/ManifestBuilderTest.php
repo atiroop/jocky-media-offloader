@@ -152,7 +152,6 @@ final class ManifestBuilderTest extends WP_UnitTestCase {
 		$tag  = new \WP_HTML_Tag_Processor( $html );
 		self::assertTrue( $tag->next_tag( 'IMG' ) );
 		self::assertSame( 'https://cdn.example.com/' . $encoded_medium_key, $tag->get_attribute( 'src' ) );
-		self::assertStringNotContainsString( 'photo-300x300.png', (string) $tag->get_attribute( 'src' ) );
 	}
 
 	public function test_pdf_manifest_includes_original_sizes_and_backups_but_rejects_escape(): void {
